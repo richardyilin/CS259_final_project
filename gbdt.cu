@@ -38,6 +38,7 @@ using namespace std;
 // # define numCols 4
 # define MinimumSplitNumInstances 1
 # define NUM_THREAD 512
+# define Gamma 0
 
 
 
@@ -561,12 +562,19 @@ __global__ void get_gain(node* d_nodes, int* d_key, VTYPE* d_buffer) { // d_buff
     int end_index = start_index + num_instances * NUM_FEATURE;
     VTYPE gain, H_l, H_r, G_l, G_r, G_L_plus_G_r;
     int index_in_segment, last_instance_index;
+    int num_left_instance, num_right_instance;
 
     // skip the last instance
     for (int index = start_index; index < end_index; index += blockDim.x) {
         index_in_segment = index % num_instances;
         if (index_in_segment == NUM_FEATURE - 1) { // the last instance in the feature, cannot split because the right child has no instances
             //d_buffer[index] = 0;
+            continue;
+        }
+        num_left_instance = index_in_segment + 1;
+        num_right_instance = num_instances - num_left_instance;
+        if (num_left_instance < MinimumSplitNumInstances || num_right_instance < MinimumSplitNumInstances) {
+            d_buffer[index] = 0;
             continue;
         }
         last_instance_index = (((index / num_instances) + 1) * num_instances) - 1;
@@ -589,6 +597,50 @@ __global__ void get_gain(node* d_nodes, int* d_key, VTYPE* d_buffer) { // d_buff
     }
 }
 
+__global__ void get_best_split_point(node* d_nodes, VTYPE* d_buffer, int* d_best_split_index) {
+    int node_id = blockDim.x;
+    __shared__ node cur_node = d_nodes[node_id];
+    int thread_idx = threadIdx.x
+    int index_of_this_thread = cur_node.start_index + thread_idx;
+    int num_instances = cur_node.num_instances;
+    int end_index = index_of_this_thread + num_instances * NUM_FEATURE;
+    VTYPE max_value = 0;
+    VTYPE compared_value;
+    int max_index = -1;
+    for (int index = index_of_this_thread; index < end_index; index += blockDim.x) {
+        compared_value = d_buffer[index];
+        if (compared_value > max_value) {
+            max_value = compared_value;
+            max_index = index;
+        }
+    }
+    int node_size = cur_node.node_size;
+    int last_num_active_thread = node_size;
+    int num_active_thread = (node_size + 1) / 2;
+    int compared_thread_idx, compared_index;
+    while (last_num_active_thread > 1) {
+        if (thread_idx >= num_active_thread && thread_idx < last_num_active_thread) {
+            d_buffer[index_of_this_thread] = max_value;
+            d_best_split_index[index_of_this_thread] = max_index;
+        }
+        __syncthreads();
+        compared_thread_idx = thread_idx + num_active_thread;
+        compared_index = cur_node.start_index + compared_thread_idx;
+        if (thread_idx < num_active_thread && compared_thread_idx < last_num_active_thread) {
+            compared_value = d_buffer[compared_index];
+            if (compared_value > max_value) {
+                max_value = compared_value;
+                max_index = compared_index;
+            }
+        }
+        last_num_active_thread = num_active_thread;
+        num_active_thread = (num_active_thread + 1) / 2;
+    }
+
+    if (thread_idx == 0 && max_value > Gamma) {
+        d_nodes[node_id].split_index = max_index;
+    }
+}
 int main(void) {
     node nodes[MaxNodeNum];
     node root;
@@ -619,6 +671,10 @@ int main(void) {
     VTYPE *d_buffer;
     cudaMalloc((void **)(&d_buffer), sizeof(VTYPE) * DataSize);
 
+    
+    int *d_best_split_index;
+    cudaMalloc((void **)(&d_best_split_index), sizeof(int) * DataSize);
+
     VTYPE *d_label;
     cudaMalloc((void **)(&d_label), sizeof(VTYPE) * DataSize); // Use d_label instead of label
     cudaMemcpy(d_label, label, sizeof(VTYPE) * DataSize, cudaMemcpyHostToDevice);
@@ -647,6 +703,8 @@ int main(void) {
     cudaMalloc((int **)(&d_total_num_nodes), sizeof(int)); // Use d_label instead of label
     cudaMemcpy(d_total_num_nodes, total_num_nodes, sizeof(int), cudaMemcpyHostToDevice);
 
+    
+
     dim3 block_size, thread_size;
     while (level < MaxDepth - 1) {
         printf("level %d\n", level);
@@ -657,6 +715,7 @@ int main(void) {
         thrust::inclusive_scan_by_key(thrust::system::cuda::par, d_key, d_key + DataSize, d_buffer, d_buffer); // find G
         get_gain<<<block_size, thread_size>>>(d_nodes, d_key, d_buffer);
         // it is inclusive so for split point at index i, data i belong to the left child
+        get_best_split_point<<<block_size, thread_size>>>(d_nodes, d_buffer, d_best_split_index);
         cudaDeviceSynchronize();
         cudaMemcpy(data, d_data, sizeof(attribute_id_pair)* DataSize, cudaMemcpyDeviceToHost);
         cudaMemcpy(nodes, d_nodes, sizeof(node)* MaxNodeNum, cudaMemcpyDeviceToHost);
