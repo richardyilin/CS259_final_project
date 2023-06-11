@@ -37,6 +37,7 @@ using namespace std;
 // # define numRows 8
 // # define numCols 4
 # define MinimumSplitNumInstances 1
+# define NUM_THREAD 512
 
 
 
@@ -262,260 +263,278 @@ __attribute__ ((noinline))  void end_roi()   {
 
 
 
-__global__ void tree_GPU(node* d_nodes, attribute_id_pair* d_data, VTYPE* d_label, int* d_num_node_eachlevel,int* d_total_num_nodes )
-{   
-    int num_node_this_level = *d_num_node_eachlevel;
-    int total_num_nodes_this_level = *d_total_num_nodes;
-    int total_num_nodes_next_level = total_num_nodes_this_level;
-    int num_node_next_level = 0;
-    printf("d_nodes[0].num_instances %d\n", d_nodes[0].num_instances);
-    printf("num_node_this_level %d, total_num_nodes_this_level %d\n", num_node_this_level, total_num_nodes_this_level);
-    for (int cur_node_id = total_num_nodes_this_level -  num_node_this_level; cur_node_id < total_num_nodes_this_level; cur_node_id++) {
-            printf("cur_node_id %d, total_num_nodes_this_level %d, (cur_node_id < total_num_nodes_this_level) %d\n", cur_node_id, total_num_nodes_this_level, (cur_node_id < total_num_nodes_this_level));
-            node cur_node = d_nodes[cur_node_id];
-            if (cur_node.num_instances < MinimumSplitNumInstances) {
-                // printf("cur_node.num_instances %d\n", cur_node.num_instances);
-                // printf("continue\n");
-                continue;
-            }
-            int num_instances= cur_node.num_instances;
-            int start_index = cur_node.start_index;
-            int node_size = num_instances* FeatureNum;
-            VTYPE best_gain = 0;
-            VTYPE best_split_point = 0;
-            int best_split_index = -1;
-            int best_split_feature_index = 0;
-            VTYPE gamma = 0.0;
-            VTYPE sum_y = 0;
+// __global__ void tree_GPU(node* d_nodes, attribute_id_pair* d_data, VTYPE* d_label, int* d_num_node_eachlevel,int* d_total_num_nodes )
+// {   
+//     int num_node_this_level = *d_num_node_eachlevel;
+//     int total_num_nodes_this_level = *d_total_num_nodes;
+//     int total_num_nodes_next_level = total_num_nodes_this_level;
+//     int num_node_next_level = 0;
+//     printf("d_nodes[0].num_instances %d\n", d_nodes[0].num_instances);
+//     printf("num_node_this_level %d, total_num_nodes_this_level %d\n", num_node_this_level, total_num_nodes_this_level);
+//     for (int cur_node_id = total_num_nodes_this_level -  num_node_this_level; cur_node_id < total_num_nodes_this_level; cur_node_id++) {
+//             printf("cur_node_id %d, total_num_nodes_this_level %d, (cur_node_id < total_num_nodes_this_level) %d\n", cur_node_id, total_num_nodes_this_level, (cur_node_id < total_num_nodes_this_level));
+//             node cur_node = d_nodes[cur_node_id];
+//             if (cur_node.num_instances < MinimumSplitNumInstances) {
+//                 // printf("cur_node.num_instances %d\n", cur_node.num_instances);
+//                 // printf("continue\n");
+//                 continue;
+//             }
+//             int num_instances= cur_node.num_instances;
+//             int start_index = cur_node.start_index;
+//             int node_size = num_instances* FeatureNum;
+//             VTYPE best_gain = 0;
+//             VTYPE best_split_point = 0;
+//             int best_split_index = -1;
+//             int best_split_feature_index = 0;
+//             VTYPE gamma = 0.0;
+//             VTYPE sum_y = 0;
             
-            for (int i = start_index ; i < start_index  + num_instances; i++) {
-                attribute_id_pair pair = d_data[i];
-                int instance_id = pair.instance_id;
+//             for (int i = start_index ; i < start_index  + num_instances; i++) {
+//                 attribute_id_pair pair = d_data[i];
+//                 int instance_id = pair.instance_id;
                 
-                // Access the corresponding label in d_label using the instance_id
-                VTYPE y = d_label[instance_id];
-                sum_y += y;
-                // Perform summation of y or use the value for computation
-                // ...
-            }
+//                 // Access the corresponding label in d_label using the instance_id
+//                 VTYPE y = d_label[instance_id];
+//                 sum_y += y;
+//                 // Perform summation of y or use the value for computation
+//                 // ...
+//             }
             
-            // Calculate the mean of sum_y as prediction
-            VTYPE prediction = sum_y / num_instances;
+//             // Calculate the mean of sum_y as prediction
+//             VTYPE prediction = sum_y / num_instances;
 
-            VTYPE Diff[DataSize];
-            for (int i = start_index ; i < start_index  + node_size; i++) {
-                attribute_id_pair pair = d_data[i];
-                int instance_id = pair.instance_id;
+//             VTYPE Diff[DataSize];
+//             for (int i = start_index ; i < start_index  + node_size; i++) {
+//                 attribute_id_pair pair = d_data[i];
+//                 int instance_id = pair.instance_id;
                 
-                // Access the corresponding label in d_label using the instance_id
-                VTYPE y = d_label[instance_id];
-                Diff[i] = y - prediction;
-                // Perform summation of y or use the value for computation
-                // ...
-            }
+//                 // Access the corresponding label in d_label using the instance_id
+//                 VTYPE y = d_label[instance_id];
+//                 Diff[i] = y - prediction;
+//                 // Perform summation of y or use the value for computation
+//                 // ...
+//             }
             
-            // Calculate the prefix sum of Diff
-            VTYPE presum[ DataSize];
-            presum[start_index ] = Diff[start_index ];
-            for (int i = start_index + 1; i < start_index  + node_size; i++) {
-                presum[i] = presum[i-1] + Diff[i];
-            }
+//             // Calculate the prefix sum of Diff
+//             VTYPE presum[ DataSize];
+//             presum[start_index ] = Diff[start_index ];
+//             for (int i = start_index + 1; i < start_index  + node_size; i++) {
+//                 presum[i] = presum[i-1] + Diff[i];
+//             }
 
-            for (int j = 0; j < node_size / FeatureNum; j++) {
-                for (int k = 0; k < FeatureNum; k++) {
-                    int instanceId = k * (node_size / FeatureNum) + j;
+//             for (int j = 0; j < node_size / FeatureNum; j++) {
+//                 for (int k = 0; k < FeatureNum; k++) {
+//                     int instanceId = k * (node_size / FeatureNum) + j;
 
-                    // Not the last instance in one attribute
-                    if (((instanceId + 1) % FeatureNum) != 0) {
-                        VTYPE split_point = (d_data[instanceId].attribute_value + d_data[instanceId + 1].attribute_value) / 2;
-                        VTYPE G_l = presum[instanceId];
-                        VTYPE G_r = presum[(k + 1) * (node_size / FeatureNum) - 1] - presum[instanceId];
-                        VTYPE H_l = (instanceId + 1 ) * 2;
-                        VTYPE H_r = (node_size + start_index  - instanceId - 1) * 2;
-                        VTYPE gain = 0.5 * (G_l * G_l / (H_l + GainLambda) + G_r * G_r / (H_r + GainLambda) - (G_l + G_r) * (G_l + G_r) / (H_l + H_r - GainLambda));
+//                     // Not the last instance in one attribute
+//                     if (((instanceId + 1) % FeatureNum) != 0) {
+//                         VTYPE split_point = (d_data[instanceId].attribute_value + d_data[instanceId + 1].attribute_value) / 2;
+//                         VTYPE G_l = presum[instanceId];
+//                         VTYPE G_r = presum[(k + 1) * (node_size / FeatureNum) - 1] - presum[instanceId];
+//                         VTYPE H_l = (instanceId + 1 ) * 2;
+//                         VTYPE H_r = (node_size + start_index  - instanceId - 1) * 2;
+//                         VTYPE gain = 0.5 * (G_l * G_l / (H_l + GainLambda) + G_r * G_r / (H_r + GainLambda) - (G_l + G_r) * (G_l + G_r) / (H_l + H_r - GainLambda));
 
-                        if ((gain > best_gain) && (gain > gamma)) {
+//                         if ((gain > best_gain) && (gain > gamma)) {
 
-                            best_gain = gain;
-                            best_split_point = split_point;
-                            best_split_index = j;
-                            best_split_feature_index = k;
-                        }
-                    }
-                }
-            }
-            // printf("1\n");
-            if (best_split_index == -1) {
-                continue;
-            }
+//                             best_gain = gain;
+//                             best_split_point = split_point;
+//                             best_split_index = j;
+//                             best_split_feature_index = k;
+//                         }
+//                     }
+//                 }
+//             }
+//             // printf("1\n");
+//             if (best_split_index == -1) {
+//                 continue;
+//             }
 
-            VTYPE left_instanceid [InputNum];
-            for (int split_index = 0; split_index < best_split_index + 1; split_index++) {
-                int left_index = best_split_feature_index * (num_instances) + split_index;
+//             VTYPE left_instanceid [InputNum];
+//             for (int split_index = 0; split_index < best_split_index + 1; split_index++) {
+//                 int left_index = best_split_feature_index * (num_instances) + split_index;
 
-                attribute_id_pair pair = d_data[left_index];
-                int original_id = pair.instance_id;
-                left_instanceid[split_index] = original_id;
-            }
+//                 attribute_id_pair pair = d_data[left_index];
+//                 int original_id = pair.instance_id;
+//                 left_instanceid[split_index] = original_id;
+//             }
 
-            // VTYPE counter [DataSize];
-            extern __shared__ int counter [];
-            for (int i = start_index ; i < start_index  + node_size; i++) {
-                attribute_id_pair pair = d_data[i];
-                int id = pair.instance_id;
-                bool found = false;
+//             // VTYPE counter [DataSize];
+//             extern __shared__ int counter [];
+//             for (int i = start_index ; i < start_index  + node_size; i++) {
+//                 attribute_id_pair pair = d_data[i];
+//                 int id = pair.instance_id;
+//                 bool found = false;
 
-                // Loop through the left indices array
-                for (int j = 0; j < node_size; j++) {
-                    if (left_instanceid[j] == id) {
-                        found = true;
-                        break;
-                    }
-                }
+//                 // Loop through the left indices array
+//                 for (int j = 0; j < node_size; j++) {
+//                     if (left_instanceid[j] == id) {
+//                         found = true;
+//                         break;
+//                     }
+//                 }
 
-                // Check if id is found in left_indices
-                if (found) {
-                    counter[i] = 1;  // Counter for id found in left_indices
-                } else {
-                    counter[i] = 0;  // Counter for id not found in left_indices
-                }
-            }
+//                 // Check if id is found in left_indices
+//                 if (found) {
+//                     counter[i] = 1;  // Counter for id found in left_indices
+//                 } else {
+//                     counter[i] = 0;  // Counter for id not found in left_indices
+//                 }
+//             }
             
-            int getter[2 * FeatureNum] = {0};  // Initialize getter array with 0s
-            int getter_i = 0;
+//             int getter[2 * FeatureNum] = {0};  // Initialize getter array with 0s
+//             int getter_i = 0;
 
-            for (int i = 0; i < num_instances* FeatureNum; i += num_instances) {
-                int count_1 = 0;
-                int count_0 = 0;
+//             for (int i = 0; i < num_instances* FeatureNum; i += num_instances) {
+//                 int count_1 = 0;
+//                 int count_0 = 0;
 
-                for (int j = 0; j < num_instances; j++) {
-                    if (counter[i + j] == 1) {
-                        count_1++;  // Increment occurrence of 1
-                    } else {
-                        count_0++;  // Increment occurrence of 0
-                    }
-                }
+//                 for (int j = 0; j < num_instances; j++) {
+//                     if (counter[i + j] == 1) {
+//                         count_1++;  // Increment occurrence of 1
+//                     } else {
+//                         count_0++;  // Increment occurrence of 0
+//                     }
+//                 }
 
-                getter[getter_i] = count_1;
-                getter[getter_i + 1] = count_0;
-                getter_i += 2;
-            }
+//                 getter[getter_i] = count_1;
+//                 getter[getter_i + 1] = count_0;
+//                 getter_i += 2;
+//             }
 
-            int getter_group[2 * FeatureNum] = {0};
-            int leftIndex = 0;
-            int rightIndex = FeatureNum;
+//             int getter_group[2 * FeatureNum] = {0};
+//             int leftIndex = 0;
+//             int rightIndex = FeatureNum;
 
-            for (int i = 0; i < 2 * FeatureNum; i++) {
-                if (i % 2 == 0) {
-                    getter_group[leftIndex] = getter[i];
-                    leftIndex++;
-                } else {
-                    getter_group[rightIndex] = getter[i];
-                    rightIndex++;
-                }
-            }
+//             for (int i = 0; i < 2 * FeatureNum; i++) {
+//                 if (i % 2 == 0) {
+//                     getter_group[leftIndex] = getter[i];
+//                     leftIndex++;
+//                 } else {
+//                     getter_group[rightIndex] = getter[i];
+//                     rightIndex++;
+//                 }
+//             }
             
-            // printf("2\n");
-            int presum_getter[2 * FeatureNum] = {0};  // Initialize presum_getter array with 0s
+//             // printf("2\n");
+//             int presum_getter[2 * FeatureNum] = {0};  // Initialize presum_getter array with 0s
 
-            // Calculate prefix sum of getter
-            presum_getter[0] = 0;  // First element is 0
-            for (int i = 1; i < 2 * FeatureNum; i++) {
-                presum_getter[i] = presum_getter[i - 1] + getter_group[i - 1];
-            }
+//             // Calculate prefix sum of getter
+//             presum_getter[0] = 0;  // First element is 0
+//             for (int i = 1; i < 2 * FeatureNum; i++) {
+//                 presum_getter[i] = presum_getter[i - 1] + getter_group[i - 1];
+//             }
 
-            attribute_id_pair sorted_data[DataSize];
+//             attribute_id_pair sorted_data[DataSize];
 
 
-        // Sort data accoring to prefixsum
-            for (int f = 0; f < FeatureNum; f++) {
-                for (int j = 0; j < num_instances; j++) {
-                    int instanceId = f * num_instances + j;
-                    int offset_left = 0;
-                    int offset_right = 0;
-                    // Check if d_data[instanceId].instance_id is in left_instanceid
-                    bool found = false;
-                    for (int k = 0; k < node_size; k++) {
-                        if (d_data[instanceId].instance_id == left_instanceid[k]) {
-                            found = true;
-                            break;
-                        }
-                    }
+//         // Sort data accoring to prefixsum
+//             for (int f = 0; f < FeatureNum; f++) {
+//                 for (int j = 0; j < num_instances; j++) {
+//                     int instanceId = f * num_instances + j;
+//                     int offset_left = 0;
+//                     int offset_right = 0;
+//                     // Check if d_data[instanceId].instance_id is in left_instanceid
+//                     bool found = false;
+//                     for (int k = 0; k < node_size; k++) {
+//                         if (d_data[instanceId].instance_id == left_instanceid[k]) {
+//                             found = true;
+//                             break;
+//                         }
+//                     }
 
-                    // Determine offset and assign values to sorted_data based on found flag
-                    if (found) {
-                        offset_left = presum_getter[f];
-                        sorted_data[offset_left] = d_data[instanceId];
-                        offset_left++;
-                    } else {
-                        offset_right = presum_getter[FeatureNum + f];
-                        sorted_data[offset_right] = d_data[instanceId];
-                        offset_right++;
-                    }
-                }
-            }
-            memcpy(d_data,sorted_data, sizeof(VTYPE) * DataSize);
-            int new_start_index = -1;
+//                     // Determine offset and assign values to sorted_data based on found flag
+//                     if (found) {
+//                         offset_left = presum_getter[f];
+//                         sorted_data[offset_left] = d_data[instanceId];
+//                         offset_left++;
+//                     } else {
+//                         offset_right = presum_getter[FeatureNum + f];
+//                         sorted_data[offset_right] = d_data[instanceId];
+//                         offset_right++;
+//                     }
+//                 }
+//             }
+//             memcpy(d_data,sorted_data, sizeof(VTYPE) * DataSize);
+//             int new_start_index = -1;
 
-            // Scan data to find the first element where instance_id is not in left_instanceid
-            for (int i = 0; i < DataSize; i++) {
-                bool found = false;
-                for (int j = 0; j < node_size; j++) {
-                    if (d_data[i].instance_id == left_instanceid[j]) {
-                        found = true;
-                        break;
-                    }
-                }
-                if (!found) {
-                    new_start_index = i;
-                    break;
-                }
-            }
-            cur_node.start_index = start_index;
-            cur_node.num_instances = num_instances;
-            // cur_node.level = level ;
-            // cur_node.left_child_id = left_child_id;
-            // cur_node.right_child_id = right_child_id;
-            cur_node.training_loss = best_gain;
-            // cur_node.is_leaf = is_leaf;
-            cur_node.feature_id = best_split_feature_index;
-            cur_node.feature_threshold = best_split_point;
-            cur_node.split_index = best_split_index;
+//             // Scan data to find the first element where instance_id is not in left_instanceid
+//             for (int i = 0; i < DataSize; i++) {
+//                 bool found = false;
+//                 for (int j = 0; j < node_size; j++) {
+//                     if (d_data[i].instance_id == left_instanceid[j]) {
+//                         found = true;
+//                         break;
+//                     }
+//                 }
+//                 if (!found) {
+//                     new_start_index = i;
+//                     break;
+//                 }
+//             }
+//             cur_node.start_index = start_index;
+//             cur_node.num_instances = num_instances;
+//             // cur_node.level = level ;
+//             // cur_node.left_child_id = left_child_id;
+//             // cur_node.right_child_id = right_child_id;
+//             cur_node.training_loss = best_gain;
+//             // cur_node.is_leaf = is_leaf;
+//             cur_node.feature_id = best_split_feature_index;
+//             cur_node.feature_threshold = best_split_point;
+//             cur_node.split_index = best_split_index;
 
-            // Create the left child node
-            node left_child;
+//             // Create the left child node
+//             node left_child;
            
-            left_child.start_index = start_index;
-            left_child.num_instances = (new_start_index - start_index)/FeatureNum;
-            left_child.node_id = total_num_nodes_next_level;
-            d_nodes[total_num_nodes_next_level] = left_child;
+//             left_child.start_index = start_index;
+//             left_child.num_instances = (new_start_index - start_index)/FeatureNum;
+//             left_child.node_id = total_num_nodes_next_level;
+//             d_nodes[total_num_nodes_next_level] = left_child;
 
-            cur_node.left_child_id = total_num_nodes_next_level;
+//             cur_node.left_child_id = total_num_nodes_next_level;
             
-            total_num_nodes_next_level++;
+//             total_num_nodes_next_level++;
         
-            // left_child .level = level + 1;
+//             // left_child .level = level + 1;
 
-            // Create the right child node
-            node right_child;
-            right_child.start_index = new_start_index;
-            right_child.num_instances = (node_size - new_start_index)/ FeatureNum;
-            right_child.node_id = total_num_nodes_next_level;
-            // right_child.level = level + 1;
-            // Assign left and right child nodes to d_nodes array
-            d_nodes[total_num_nodes_next_level] = right_child;
+//             // Create the right child node
+//             node right_child;
+//             right_child.start_index = new_start_index;
+//             right_child.num_instances = (node_size - new_start_index)/ FeatureNum;
+//             right_child.node_id = total_num_nodes_next_level;
+//             // right_child.level = level + 1;
+//             // Assign left and right child nodes to d_nodes array
+//             d_nodes[total_num_nodes_next_level] = right_child;
             
-            cur_node.right_child_id = total_num_nodes_next_level;
-            printf("total_num_nodes_next_level %d\n", total_num_nodes_next_level);
-            total_num_nodes_next_level++;
+//             cur_node.right_child_id = total_num_nodes_next_level;
+//             printf("total_num_nodes_next_level %d\n", total_num_nodes_next_level);
+//             total_num_nodes_next_level++;
 
-            d_nodes[cur_node_id] = cur_node;
-        }
-        *d_total_num_nodes = total_num_nodes_next_level; 
-        *d_num_node_eachlevel = (total_num_nodes_next_level - total_num_nodes_this_level);
+//             d_nodes[cur_node_id] = cur_node;
+//         }
+//         *d_total_num_nodes = total_num_nodes_next_level; 
+//         *d_num_node_eachlevel = (total_num_nodes_next_level - total_num_nodes_this_level);
+// }
+
+__global__ void get_gradient(node* d_nodes, attribute_id_pair* d_data, VTYPE* d_label, VTYPE* d_buffer) {
+    int node_id = blockDim.x;
+    __shared__ node cur_node = d_nodes[node_id];
+    int start_index = cur_node.start_index + threadIdx.x;
+    int num_instances = cur_node.num_instances;
+    int end_index = start_index + num_instances * FeatureNum;
+    int instance_id;
+    VTYPE y, y_hat, gradient;
+
+    for (int index = start_index; index < end_index; index += blockDim.x) {
+        attribute_id_pair pair = d_data[index];
+        instance_id = pair.instance_id;
+        y = d_label[instance_id];
+        y_hat = cur_node.predicted_value;
+        gradient = y_hat - y;
+        d_buffer[index] = gradient;
+    }
+
 }
-
-
 
 int main(void) {
     node nodes[MaxNodeNum];
@@ -541,6 +560,9 @@ int main(void) {
     cudaMalloc((void **)(&d_data), sizeof(VTYPE) * DataSize);
     cudaMemcpy(d_data, data, sizeof(VTYPE) * DataSize, cudaMemcpyHostToDevice);
 
+
+    VTYPE *d_buffer;
+    cudaMalloc((void **)(&d_buffer), sizeof(VTYPE) * DataSize);
 
     VTYPE *d_label;
     cudaMalloc((void **)(&d_label), sizeof(VTYPE) * DataSize); // Use d_label instead of label
@@ -570,9 +592,12 @@ int main(void) {
     cudaMalloc((int **)(&d_total_num_nodes), sizeof(int)); // Use d_label instead of label
     cudaMemcpy(d_total_num_nodes, total_num_nodes, sizeof(int), cudaMemcpyHostToDevice);
 
+    dim3 block_size, thread_size;
     while (level < MaxDepth - 1) {
         printf("level %d\n", level);
-        tree_GPU<<<1, 1, 4*DataSize>>>(d_nodes, d_data, d_label, d_num_node_eachlevel,  d_total_num_nodes );
+        block_size = (*num_node_this_level);
+`       thread_size = (NUM_THREAD);
+        get_gradient<<<block_size, thread_size>>>(d_nodes, d_data, d_label, d_buffer);
         cudaDeviceSynchronize();
         cudaMemcpy(data, d_data, sizeof(attribute_id_pair)* DataSize, cudaMemcpyDeviceToHost);
         cudaMemcpy(nodes, d_nodes, sizeof(node)* MaxNodeNum, cudaMemcpyDeviceToHost);
