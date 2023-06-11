@@ -7,6 +7,14 @@
 #include <sys/time.h>
 #include <vector>
 #include <set>
+#include <thrust/scan.h>
+#include <thrust/copy.h>
+#include <thrust/reduce.h>
+#include <thrust/sort.h>
+#include <thrust/device_vector.h>
+#include <thrust/iterator/zip_iterator.h>
+#include <thrust/sequence.h>
+#include <thrust/functional.h>
 
 
 
@@ -66,22 +74,22 @@ public:
     int split_index;  // the feature we use to split the node
     VTYPE feature_threshold; // the threshold of the feature value; if it is larger than threshold, it goes to the right child, otherwise the left child
 
-    __host__ __device__ node()
-    {
-        predicted_value = -1;
-        node_id = -1;
-        num_instances = -1; // number of instances
-        level = -1;
-        split_index = -1;
-        left_child_id = -1;
-        right_child_id = -1;
-        training_loss = 0.0;
-        is_leaf = false;
-        start_index = 0;
-        feature_id = -1;
-        feature_threshold = 0.0;
-        index_in_segment = -1;
-    }
+    // __host__ __device__ node()
+    // {
+    //     predicted_value = -1;
+    //     node_id = -1;
+    //     num_instances = -1; // number of instances
+    //     level = -1;
+    //     split_index = -1;
+    //     left_child_id = -1;
+    //     right_child_id = -1;
+    //     training_loss = 0.0;
+    //     is_leaf = false;
+    //     start_index = 0;
+    //     feature_id = -1;
+    //     feature_threshold = 0.0;
+    //     index_in_segment = -1;
+    // }
 };
 
 
@@ -734,10 +742,15 @@ __global__ void get_best_split_point(node* d_nodes, VTYPE* d_buffer) {
         num_active_thread = (num_active_thread + 1) / 2;
     }
 
-    if (thread_idx == 0 && max_value > Gamma) {
-        d_nodes[node_id].split_index = max_index;
-        int feature_id = (max_index - start_index) / num_instances;
-        d_nodes[node_id].feature_id = feature_id;
+    if (thread_idx == 0) {
+        if (max_value > Gamma) {
+            d_nodes[node_id].split_index = max_index;
+            int feature_id = (max_index - start_index) / num_instances;
+            d_nodes[node_id].feature_id = feature_id;
+        } else {
+            d_nodes[node_id].split_index = -1;
+            d_nodes[node_id].feature_id = -1;
+        }
     }
     // __syncthreads();
 
@@ -769,7 +782,7 @@ __global__ void get_best_split_point(node* d_nodes, VTYPE* d_buffer) {
     // }
 }
 __global__ void set_counter(node* d_nodes, VTYPE* d_buffer, int* d_counter) {
-    extern __shared__
+    extern __shared__ int counter[];
 }
 
 int main(void) {
@@ -840,28 +853,28 @@ int main(void) {
 
     
 
-    dim3 block_size, thread_size;
+    dim3 block_size(*num_node_this_level, 0, 0);
+    dim3 thread_size(NUM_THREAD, 0, 0);
     int num_cache_entry_per_block;
     int dynamic_memory_size;
     while (level < MaxDepth - 1) {
         printf("level %d\n", level);
-        block_size = (*num_node_this_level);
-`       thread_size = (NUM_THREAD);
+        block_size.x = *num_node_this_level;
         get_gradient<<<block_size, thread_size>>>(d_nodes, d_data, d_label, d_buffer);
-        set_key_segment<<<block_size, thread_size>>>(d_node, d_key);
+        set_key_segment<<<block_size, thread_size>>>(d_nodes, d_key);
         thrust::inclusive_scan_by_key(thrust::system::cuda::par, d_key, d_key + DataSize, d_buffer, d_buffer); // find G
         get_gain<<<block_size, thread_size>>>(d_nodes, d_key, d_buffer);
         // it is inclusive so for split point at index i, data i belong to the left child
         num_cache_entry_per_block = DynamicMemorySize / (sizeof(VTYPE) + sizeof(int)) / (*num_node_this_level);
-        thread_size = min(num_cache_entry_per_block, NUM_THREAD);
-        dynamic_memory_size = thread_size * (sizeof(VTYPE) + sizeof(int));
+        thread_size.x = min(num_cache_entry_per_block, NUM_THREAD);
+        dynamic_memory_size = thread_size.x * (sizeof(VTYPE) + sizeof(int));
         get_best_split_point<<<block_size, thread_size, dynamic_memory_size>>>(d_nodes, d_buffer);
         num_cache_entry_per_block = DynamicMemorySize / sizeof(int) / (*num_node_this_level) / 2;
-        thread_size = min(num_cache_entry_per_block, NUM_THREAD);
-        dynamic_memory_size = thread_size * sizeof(int) * 2;
+        thread_size.x = min(num_cache_entry_per_block, NUM_THREAD);
+        dynamic_memory_size = thread_size.x * sizeof(int) * 2;
         
-        VTYPE *d_counter;
-        cudaMalloc((void **)(&d_counter), sizeof(int) * thread_size * (*num_node_this_level) * 2);
+        int *d_counter;
+        cudaMalloc((void **)(&d_counter), sizeof(int) * thread_size.x * (*num_node_this_level) * 2);
         set_counter<<<block_size, thread_size, dynamic_memory_size>>>(d_nodes, d_buffer, d_counter);
         cudaFree(d_counter);
         cudaDeviceSynchronize();
