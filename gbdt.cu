@@ -26,20 +26,21 @@ using namespace std;
 
 //Define the parameters if not defined externally
 #ifndef cmd_def
-#define InputNum 8  // Number of input data points (instances)
-#define FeatureNum 4  // Number of features in an instance
-#define MaxDepth 4  // Number of features in an instance
+#define InputNum 2  // Number of input data points (instances)
+#define FeatureNum 2  // Number of features in an instance
+#define MaxDepth 2  // Number of features in an instance
+# define MaxNodeNum (static_cast<int>(pow(2, MaxDepth)) - 1)
 #endif
 #define VTYPE float
 # define DataSize (FeatureNum * InputNum)
 # define GainLambda 1
-# define numRows 8
-# define numCols 4
-# define MinimumNodeSize 2
+// # define numRows 8
+// # define numCols 4
+# define MinimumSplitNumInstances 1
 
 
 
-class __host__ __device__ node
+class node
 {
 public:
 
@@ -59,13 +60,13 @@ public:
 
     __host__ __device__ node()
     {
-        predicted_value = 0.0;
-        node_id = 0;
-        num_instances = InputNum; // number of instances
-        level = 0;
+        predicted_value = -1;
+        node_id = -1;
+        num_instances = -1; // number of instances
+        level = -1;
         split_index = -1;
-        left_child_id = 1;
-        right_child_id = 2;
+        left_child_id = -1;
+        right_child_id = -1;
         training_loss = 0.0;
         is_leaf = false;
         start_index = 0;
@@ -161,9 +162,10 @@ void read_input(attribute_id_pair* data, VTYPE* label) {
     for (int i = 0; i < FeatureNum; i++) {
         for (int j = 0; j < InputNum; j++) {
             attribute_id_pair pair;
-            pair.attribute_value = float(j) + static_cast<VTYPE>(rand() % 101) / 100.0;
-            pair.instance_id = i* InputNum + j;
-            data[i] = pair;
+            int id = i * InputNum + j;
+            pair.attribute_value = VTYPE(id);
+            pair.instance_id = id;
+            data[id] = pair;
         }
     }
 
@@ -262,12 +264,22 @@ __attribute__ ((noinline))  void end_roi()   {
 
 __global__ void tree_GPU(node* d_nodes, attribute_id_pair* d_data, VTYPE* d_label, int* d_num_node_eachlevel,int* d_total_num_nodes )
 {   
-    int num_node_eachlevel = *d_num_node_eachlevel;
-    int total_num_nodes = *d_total_num_nodes;
-    for (int l = total_num_nodes -  num_node_eachlevel; l < total_num_nodes; l++) {
-            node currNode = d_nodes[l];
-            int num_instances= currNode.num_instances;
-            int start_index = currNode.start_index;
+    int num_node_this_level = *d_num_node_eachlevel;
+    int total_num_nodes_this_level = *d_total_num_nodes;
+    int total_num_nodes_next_level = total_num_nodes_this_level;
+    int num_node_next_level = 0;
+    printf("d_nodes[0].num_instances %d\n", d_nodes[0].num_instances);
+    printf("num_node_this_level %d, total_num_nodes_this_level %d\n", num_node_this_level, total_num_nodes_this_level);
+    for (int cur_node_id = total_num_nodes_this_level -  num_node_this_level; cur_node_id < total_num_nodes_this_level; cur_node_id++) {
+            printf("cur_node_id %d, total_num_nodes_this_level %d, (cur_node_id < total_num_nodes_this_level) %d\n", cur_node_id, total_num_nodes_this_level, (cur_node_id < total_num_nodes_this_level));
+            node cur_node = d_nodes[cur_node_id];
+            if (cur_node.num_instances < MinimumSplitNumInstances) {
+                // printf("cur_node.num_instances %d\n", cur_node.num_instances);
+                // printf("continue\n");
+                continue;
+            }
+            int num_instances= cur_node.num_instances;
+            int start_index = cur_node.start_index;
             int node_size = num_instances* FeatureNum;
             VTYPE best_gain = 0;
             VTYPE best_split_point = 0;
@@ -290,7 +302,7 @@ __global__ void tree_GPU(node* d_nodes, attribute_id_pair* d_data, VTYPE* d_labe
             // Calculate the mean of sum_y as prediction
             VTYPE prediction = sum_y / num_instances;
 
-            VTYPE Diff[DataSize] __attribute__((aligned(64)));
+            VTYPE Diff[DataSize];
             for (int i = start_index ; i < start_index  + node_size; i++) {
                 attribute_id_pair pair = d_data[i];
                 int instance_id = pair.instance_id;
@@ -303,7 +315,7 @@ __global__ void tree_GPU(node* d_nodes, attribute_id_pair* d_data, VTYPE* d_labe
             }
             
             // Calculate the prefix sum of Diff
-            VTYPE presum[ DataSize] __attribute__((aligned(64)));
+            VTYPE presum[ DataSize];
             presum[start_index ] = Diff[start_index ];
             for (int i = start_index + 1; i < start_index  + node_size; i++) {
                 presum[i] = presum[i-1] + Diff[i];
@@ -332,17 +344,21 @@ __global__ void tree_GPU(node* d_nodes, attribute_id_pair* d_data, VTYPE* d_labe
                     }
                 }
             }
+            // printf("1\n");
+            if (best_split_index == -1) {
+                continue;
+            }
 
-            VTYPE left_instanceid [InputNum] __attribute__((aligned(64)));
+            VTYPE left_instanceid [InputNum];
             for (int split_index = 0; split_index < best_split_index + 1; split_index++) {
                 int left_index = best_split_feature_index * (num_instances) + split_index;
 
                 attribute_id_pair pair = d_data[left_index];
                 int original_id = pair.instance_id;
                 left_instanceid[split_index] = original_id;
-                }
+            }
 
-            // VTYPE counter [DataSize] __attribute__((aligned(64)));
+            // VTYPE counter [DataSize];
             extern __shared__ int counter [];
             for (int i = start_index ; i < start_index  + node_size; i++) {
                 attribute_id_pair pair = d_data[i];
@@ -399,6 +415,7 @@ __global__ void tree_GPU(node* d_nodes, attribute_id_pair* d_data, VTYPE* d_labe
                 }
             }
             
+            // printf("2\n");
             int presum_getter[2 * FeatureNum] = {0};  // Initialize presum_getter array with 0s
 
             // Calculate prefix sum of getter
@@ -407,7 +424,7 @@ __global__ void tree_GPU(node* d_nodes, attribute_id_pair* d_data, VTYPE* d_labe
                 presum_getter[i] = presum_getter[i - 1] + getter_group[i - 1];
             }
 
-            alignas(64) attribute_id_pair sorted_data[DataSize];
+            attribute_id_pair sorted_data[DataSize];
 
 
         // Sort data accoring to prefixsum
@@ -454,22 +471,28 @@ __global__ void tree_GPU(node* d_nodes, attribute_id_pair* d_data, VTYPE* d_labe
                     break;
                 }
             }
-            currNode.start_index = start_index;
-            currNode.num_instances = num_instances;
-            // currNode.level = level ;
-            // currNode.left_child_id = left_child_id;
-            // currNode.right_child_id = right_child_id;
-            currNode.training_loss = best_gain;
-            // currNode.is_leaf = is_leaf;
-            currNode.feature_id = best_split_feature_index;
-            currNode.feature_threshold = best_split_point;
-            currNode.split_index = best_split_index;
+            cur_node.start_index = start_index;
+            cur_node.num_instances = num_instances;
+            // cur_node.level = level ;
+            // cur_node.left_child_id = left_child_id;
+            // cur_node.right_child_id = right_child_id;
+            cur_node.training_loss = best_gain;
+            // cur_node.is_leaf = is_leaf;
+            cur_node.feature_id = best_split_feature_index;
+            cur_node.feature_threshold = best_split_point;
+            cur_node.split_index = best_split_index;
 
             // Create the left child node
             node left_child;
            
             left_child.start_index = start_index;
             left_child.num_instances = (new_start_index - start_index)/FeatureNum;
+            left_child.node_id = total_num_nodes_next_level;
+            d_nodes[total_num_nodes_next_level] = left_child;
+
+            cur_node.left_child_id = total_num_nodes_next_level;
+            
+            total_num_nodes_next_level++;
         
             // left_child .level = level + 1;
 
@@ -477,93 +500,37 @@ __global__ void tree_GPU(node* d_nodes, attribute_id_pair* d_data, VTYPE* d_labe
             node right_child;
             right_child.start_index = new_start_index;
             right_child.num_instances = (node_size - new_start_index)/ FeatureNum;
+            right_child.node_id = total_num_nodes_next_level;
             // right_child.level = level + 1;
-            num_node_eachlevel = 0;
             // Assign left and right child nodes to d_nodes array
-            num_node_eachlevel++;
-            total_num_nodes ++;
-            d_nodes[total_num_nodes] = left_child;
-            num_node_eachlevel++;
-            total_num_nodes ++;
-            d_nodes[total_num_nodes] = right_child;
+            d_nodes[total_num_nodes_next_level] = right_child;
+            
+            cur_node.right_child_id = total_num_nodes_next_level;
+            printf("total_num_nodes_next_level %d\n", total_num_nodes_next_level);
+            total_num_nodes_next_level++;
+
+            d_nodes[cur_node_id] = cur_node;
         }
-        *d_total_num_nodes = total_num_nodes; 
-        *d_num_node_eachlevel = num_node_eachlevel;
+        *d_total_num_nodes = total_num_nodes_next_level; 
+        *d_num_node_eachlevel = (total_num_nodes_next_level - total_num_nodes_this_level);
 }
 
 
 
-
-
-
-
-
-// alignas(64) thrust::vector<PairType> nodes_index;
-//     thrust::vector<VTYPE> diff(d_data->size());
-//     thrust::vector<VTYPE> presum(d_data->size());
-//     int startIdx = 0;
-//     int endIdx = d_data->size() - 1;
-
-
-
-
-
-
-
-
-//     nodes_index.push_back(std::make_pair(startIdx, endIdx));
- 
-//     while (!nodes_index.empty())
-//     {
-//         PairType pair = nodes_index.front();
-//         nodes_index.erase(nodes_index.begin());
-
-
-
-
-
-
-
-
-//         int firstElement = pair.first;
-//         int secondElement = pair.second;
-     
-//         VTYPE sum_y = 0;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-// }
-
-
-
-
-
-
-
-
 int main(void) {
-    alignas(64) node nodes[static_cast<int>(pow(2, MaxDepth)) - 1];
-    node node_1;
+    node nodes[MaxNodeNum];
+    node root;
+    root.node_id = 0;
+    root.num_instances = InputNum;
+    root.level = 0;
+    root.start_index = 0;
     // ... set other member variables as needed
-    nodes[0] = node_1;
+    nodes[0] = root;
     // Define the aligned array
     
     
-    alignas(64) attribute_id_pair data[DataSize];
-    VTYPE label [DataSize] __attribute__((aligned(64)));
+    attribute_id_pair data[DataSize];
+    VTYPE label [DataSize];
     read_input(data, label);
     cout << "starting program\n";
     // fill_data(data);
@@ -582,10 +549,10 @@ int main(void) {
     // dim3 block_size(512); //test, may change in different levels in a tree, calculated by a formula
     // dim3 grid_size(16, 16); //test, may change in different levels in a tree, calculated by a formula
     // Allocate memory on the GPU
-    node *d_nodes [static_cast<int>(pow(2, MaxDepth)) - 1];
-    cudaMalloc((void**)&d_nodes, sizeof(node) * (static_cast<int>(pow(2, MaxDepth)) - 1));
+    node *d_nodes;
+    cudaMalloc((void**)&d_nodes, sizeof(node) * MaxNodeNum);
     // Copy the nodes array to the GPU
-    cudaMemcpy(d_nodes, nodes, sizeof(node) * (static_cast<int>(pow(2, MaxDepth)) - 1), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_nodes, nodes, sizeof(node) * MaxNodeNum, cudaMemcpyHostToDevice);
     
 
 
@@ -594,22 +561,24 @@ int main(void) {
     int level = 0;
     int *d_num_node_eachlevel;
     int value = 1;
-    int *num_node_eachlevel = &value;
+    int *num_node_this_level = &value;
     cudaMalloc((int **)(&d_num_node_eachlevel), sizeof(int)); // Use d_label instead of label
-    cudaMemcpy(d_num_node_eachlevel, num_node_eachlevel, sizeof(int), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_num_node_eachlevel, num_node_this_level, sizeof(int), cudaMemcpyHostToDevice);
 
     int *d_total_num_nodes;
     int *total_num_nodes = &value;
     cudaMalloc((int **)(&d_total_num_nodes), sizeof(int)); // Use d_label instead of label
     cudaMemcpy(d_total_num_nodes, total_num_nodes, sizeof(int), cudaMemcpyHostToDevice);
 
-    while (level < MaxDepth) {
-        tree_GPU<<<1, 1, 4*DataSize>>>(*d_nodes, d_data, d_label, d_num_node_eachlevel,  d_total_num_nodes );
-        cudaMemcpy(data, d_data, sizeof(VTYPE)* DataSize, cudaMemcpyDeviceToHost);
-        cudaMemcpy(nodes, d_nodes, sizeof(VTYPE)* DataSize, cudaMemcpyDeviceToHost);
-        cudaMemcpy(num_node_eachlevel, d_num_node_eachlevel, sizeof(int), cudaMemcpyDeviceToHost);
+    while (level < MaxDepth - 1) {
+        printf("level %d\n", level);
+        tree_GPU<<<1, 1, 4*DataSize>>>(d_nodes, d_data, d_label, d_num_node_eachlevel,  d_total_num_nodes );
+        cudaDeviceSynchronize();
+        cudaMemcpy(data, d_data, sizeof(attribute_id_pair)* DataSize, cudaMemcpyDeviceToHost);
+        cudaMemcpy(nodes, d_nodes, sizeof(node)* MaxNodeNum, cudaMemcpyDeviceToHost);
+        cudaMemcpy(num_node_this_level, d_num_node_eachlevel, sizeof(int), cudaMemcpyDeviceToHost);
         cudaMemcpy(total_num_nodes, d_total_num_nodes, sizeof(int), cudaMemcpyDeviceToHost);
-
+        level++;
     }
 
     // begin_roi();
@@ -617,7 +586,7 @@ int main(void) {
     // cudaDeviceSynchronize();
     // end_roi();
 
-for (int i = 0; i < (static_cast<int>(pow(2, MaxDepth)) - 1); i++) {
+for (int i = 0; i < MaxNodeNum; i++) {
     std::cout << "Node " << i << ":" << std::endl;
     std::cout << "predicted_value: " << nodes[i].predicted_value << std::endl;
     std::cout << "node_id: " << nodes[i].node_id << std::endl;
