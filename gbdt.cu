@@ -27,12 +27,12 @@ using namespace std;
 //Define the parameters if not defined externally
 #ifndef cmd_def
 #define InputNum 2  // Number of input data points (instances)
-#define FeatureNum 2  // Number of features in an instance
+#define NUM_FEATURE 2  // Number of features in an instance
 #define MaxDepth 2  // Number of features in an instance
 # define MaxNodeNum (static_cast<int>(pow(2, MaxDepth)) - 1)
 #endif
 #define VTYPE float
-# define DataSize (FeatureNum * InputNum)
+# define DataSize (NUM_FEATURE * InputNum)
 # define GainLambda 1
 // # define numRows 8
 // # define numCols 4
@@ -55,7 +55,7 @@ public:
     bool is_leaf;
     int start_index; // start index in data
     int feature_id;
-    int feature_index;  // the feature we use to split the node
+    int index_in_segment;  // the feature we use to split the node
     int split_index;  // the feature we use to split the node
     VTYPE feature_threshold; // the threshold of the feature value; if it is larger than threshold, it goes to the right child, otherwise the left child
 
@@ -73,7 +73,7 @@ public:
         start_index = 0;
         feature_id = -1;
         feature_threshold = 0.0;
-        feature_index = -1;
+        index_in_segment = -1;
     }
 };
 
@@ -160,7 +160,7 @@ void read_input(attribute_id_pair* data, VTYPE* label) {
     //             }
     //         }  
     //     }
-    for (int i = 0; i < FeatureNum; i++) {
+    for (int i = 0; i < NUM_FEATURE; i++) {
         for (int j = 0; j < InputNum; j++) {
             attribute_id_pair pair;
             int id = i * InputNum + j;
@@ -281,11 +281,11 @@ __attribute__ ((noinline))  void end_roi()   {
 //             }
 //             int num_instances= cur_node.num_instances;
 //             int start_index = cur_node.start_index;
-//             int node_size = num_instances* FeatureNum;
+//             int node_size = num_instances* NUM_FEATURE;
 //             VTYPE best_gain = 0;
 //             VTYPE best_split_point = 0;
 //             int best_split_index = -1;
-//             int best_split_feature_index = 0;
+//             int best_split_index_in_segment = 0;
 //             VTYPE gamma = 0.0;
 //             VTYPE sum_y = 0;
             
@@ -318,19 +318,19 @@ __attribute__ ((noinline))  void end_roi()   {
 //             // Calculate the prefix sum of Diff
 //             VTYPE presum[ DataSize];
 //             presum[start_index ] = Diff[start_index ];
-//             for (int i = start_index + 1; i < start_index  + node_size; i++) {
+//             for (int i = start_index + 1; i < start_index  + node_size; i++) { // ? + node_size?
 //                 presum[i] = presum[i-1] + Diff[i];
 //             }
 
-//             for (int j = 0; j < node_size / FeatureNum; j++) {
-//                 for (int k = 0; k < FeatureNum; k++) {
-//                     int instanceId = k * (node_size / FeatureNum) + j;
+//             for (int j = 0; j < node_size / NUM_FEATURE; j++) {
+//                 for (int k = 0; k < NUM_FEATURE; k++) {
+//                     int instanceId = k * (node_size / NUM_FEATURE) + j;
 
 //                     // Not the last instance in one attribute
-//                     if (((instanceId + 1) % FeatureNum) != 0) {
+//                     if (((instanceId + 1) % NUM_FEATURE) != 0) {
 //                         VTYPE split_point = (d_data[instanceId].attribute_value + d_data[instanceId + 1].attribute_value) / 2;
 //                         VTYPE G_l = presum[instanceId];
-//                         VTYPE G_r = presum[(k + 1) * (node_size / FeatureNum) - 1] - presum[instanceId];
+//                         VTYPE G_r = presum[(k + 1) * (node_size / NUM_FEATURE) - 1] - presum[instanceId];
 //                         VTYPE H_l = (instanceId + 1 ) * 2;
 //                         VTYPE H_r = (node_size + start_index  - instanceId - 1) * 2;
 //                         VTYPE gain = 0.5 * (G_l * G_l / (H_l + GainLambda) + G_r * G_r / (H_r + GainLambda) - (G_l + G_r) * (G_l + G_r) / (H_l + H_r - GainLambda));
@@ -340,7 +340,7 @@ __attribute__ ((noinline))  void end_roi()   {
 //                             best_gain = gain;
 //                             best_split_point = split_point;
 //                             best_split_index = j;
-//                             best_split_feature_index = k;
+//                             best_split_index_in_segment = k;
 //                         }
 //                     }
 //                 }
@@ -352,7 +352,7 @@ __attribute__ ((noinline))  void end_roi()   {
 
 //             VTYPE left_instanceid [InputNum];
 //             for (int split_index = 0; split_index < best_split_index + 1; split_index++) {
-//                 int left_index = best_split_feature_index * (num_instances) + split_index;
+//                 int left_index = best_split_index_in_segment * (num_instances) + split_index;
 
 //                 attribute_id_pair pair = d_data[left_index];
 //                 int original_id = pair.instance_id;
@@ -382,10 +382,10 @@ __attribute__ ((noinline))  void end_roi()   {
 //                 }
 //             }
             
-//             int getter[2 * FeatureNum] = {0};  // Initialize getter array with 0s
+//             int getter[2 * NUM_FEATURE] = {0};  // Initialize getter array with 0s
 //             int getter_i = 0;
 
-//             for (int i = 0; i < num_instances* FeatureNum; i += num_instances) {
+//             for (int i = 0; i < num_instances* NUM_FEATURE; i += num_instances) {
 //                 int count_1 = 0;
 //                 int count_0 = 0;
 
@@ -402,11 +402,11 @@ __attribute__ ((noinline))  void end_roi()   {
 //                 getter_i += 2;
 //             }
 
-//             int getter_group[2 * FeatureNum] = {0};
+//             int getter_group[2 * NUM_FEATURE] = {0};
 //             int leftIndex = 0;
-//             int rightIndex = FeatureNum;
+//             int rightIndex = NUM_FEATURE;
 
-//             for (int i = 0; i < 2 * FeatureNum; i++) {
+//             for (int i = 0; i < 2 * NUM_FEATURE; i++) {
 //                 if (i % 2 == 0) {
 //                     getter_group[leftIndex] = getter[i];
 //                     leftIndex++;
@@ -417,11 +417,11 @@ __attribute__ ((noinline))  void end_roi()   {
 //             }
             
 //             // printf("2\n");
-//             int presum_getter[2 * FeatureNum] = {0};  // Initialize presum_getter array with 0s
+//             int presum_getter[2 * NUM_FEATURE] = {0};  // Initialize presum_getter array with 0s
 
 //             // Calculate prefix sum of getter
 //             presum_getter[0] = 0;  // First element is 0
-//             for (int i = 1; i < 2 * FeatureNum; i++) {
+//             for (int i = 1; i < 2 * NUM_FEATURE; i++) {
 //                 presum_getter[i] = presum_getter[i - 1] + getter_group[i - 1];
 //             }
 
@@ -429,7 +429,7 @@ __attribute__ ((noinline))  void end_roi()   {
 
 
 //         // Sort data accoring to prefixsum
-//             for (int f = 0; f < FeatureNum; f++) {
+//             for (int f = 0; f < NUM_FEATURE; f++) {
 //                 for (int j = 0; j < num_instances; j++) {
 //                     int instanceId = f * num_instances + j;
 //                     int offset_left = 0;
@@ -449,7 +449,7 @@ __attribute__ ((noinline))  void end_roi()   {
 //                         sorted_data[offset_left] = d_data[instanceId];
 //                         offset_left++;
 //                     } else {
-//                         offset_right = presum_getter[FeatureNum + f];
+//                         offset_right = presum_getter[NUM_FEATURE + f];
 //                         sorted_data[offset_right] = d_data[instanceId];
 //                         offset_right++;
 //                     }
@@ -479,7 +479,7 @@ __attribute__ ((noinline))  void end_roi()   {
 //             // cur_node.right_child_id = right_child_id;
 //             cur_node.training_loss = best_gain;
 //             // cur_node.is_leaf = is_leaf;
-//             cur_node.feature_id = best_split_feature_index;
+//             cur_node.feature_id = best_split_index_in_segment;
 //             cur_node.feature_threshold = best_split_point;
 //             cur_node.split_index = best_split_index;
 
@@ -487,7 +487,7 @@ __attribute__ ((noinline))  void end_roi()   {
 //             node left_child;
            
 //             left_child.start_index = start_index;
-//             left_child.num_instances = (new_start_index - start_index)/FeatureNum;
+//             left_child.num_instances = (new_start_index - start_index)/NUM_FEATURE;
 //             left_child.node_id = total_num_nodes_next_level;
 //             d_nodes[total_num_nodes_next_level] = left_child;
 
@@ -500,7 +500,7 @@ __attribute__ ((noinline))  void end_roi()   {
 //             // Create the right child node
 //             node right_child;
 //             right_child.start_index = new_start_index;
-//             right_child.num_instances = (node_size - new_start_index)/ FeatureNum;
+//             right_child.num_instances = (node_size - new_start_index)/ NUM_FEATURE;
 //             right_child.node_id = total_num_nodes_next_level;
 //             // right_child.level = level + 1;
 //             // Assign left and right child nodes to d_nodes array
@@ -521,7 +521,7 @@ __global__ void get_gradient(node* d_nodes, attribute_id_pair* d_data, VTYPE* d_
     __shared__ node cur_node = d_nodes[node_id];
     int start_index = cur_node.start_index + threadIdx.x;
     int num_instances = cur_node.num_instances;
-    int end_index = start_index + num_instances * FeatureNum;
+    int end_index = start_index + num_instances * NUM_FEATURE;
     int instance_id;
     VTYPE y, y_hat, gradient;
 
@@ -530,10 +530,63 @@ __global__ void get_gradient(node* d_nodes, attribute_id_pair* d_data, VTYPE* d_
         instance_id = pair.instance_id;
         y = d_label[instance_id];
         y_hat = cur_node.predicted_value;
-        gradient = y_hat - y;
+        gradient = 2 * (y_hat - y);
         d_buffer[index] = gradient;
     }
+}
 
+// a segment is a feature in a node. A feature contains some instances
+__global__ void set_key_segment(node* d_nodes, int* d_key) {
+    int node_id = blockDim.x;
+    __shared__ node cur_node = d_nodes[node_id];
+    int start_index = cur_node.start_index + threadIdx.x;
+    int num_instances = cur_node.num_instances;
+    int end_index = start_index + num_instances * NUM_FEATURE;
+    int key, feature_num;
+    
+
+    for (int index = start_index; index < end_index; index += blockDim.x) {
+        feature_num = (index / num_instances)
+        key = node_id * NUM_FEATURE + feature_num;
+        d_key[index] = key;
+    }
+}
+
+
+__global__ void get_gain(node* d_nodes, int* d_key, VTYPE* d_buffer) { // d_buffer is prefix sum so far
+    int node_id = blockDim.x;
+    __shared__ node cur_node = d_nodes[node_id];
+    int start_index = cur_node.start_index + threadIdx.x;
+    int num_instances = cur_node.num_instances;
+    int end_index = start_index + num_instances * NUM_FEATURE;
+    VTYPE gain, H_l, H_r, G_l, G_r, G_L_plus_G_r;
+    int index_in_segment, last_instance_index;
+
+    // skip the last instance
+    for (int index = start_index; index < end_index; index += blockDim.x) {
+        index_in_segment = index % num_instances;
+        if (index_in_segment == NUM_FEATURE - 1) { // the last instance in the feature, cannot split because the right child has no instances
+            //d_buffer[index] = 0;
+            continue;
+        }
+        last_instance_index = (((index / num_instances) + 1) * num_instances) - 1;
+        G_l = d_buffer[index];
+        G_r = d_buffer[last_instance_index] - G_l;
+        H_l = (index_in_segment + 1) * 2;
+        H_r = (num_instances - index_in_segment) * 2;
+        G_L_plus_G_r = G_l + G_r;
+        gain = ((G_l * G_l / (H_l + lambda)) + (G_r * G_r / (H_r + lambda)) - (G_L_plus_G_r * G_L_plus_G_r / (H_l + H_r - lambda))) * 0.5;
+        d_buffer[index] = gain;
+    }
+
+    __syncthreads();
+
+    // write 0 into last instance
+    start_index = cur_node.start_index + (num_instances * threadIdx.x);
+    int increment = num_instances * blockDim.x;
+    for (int index = start_index; index < end_index; index += increment) {
+        d_buffer[index] = 0;
+    }
 }
 
 int main(void) {
@@ -560,6 +613,8 @@ int main(void) {
     cudaMalloc((void **)(&d_data), sizeof(VTYPE) * DataSize);
     cudaMemcpy(d_data, data, sizeof(VTYPE) * DataSize, cudaMemcpyHostToDevice);
 
+    int *d_key;
+    cudaMalloc((void **)(&d_key), sizeof(int) * DataSize);
 
     VTYPE *d_buffer;
     cudaMalloc((void **)(&d_buffer), sizeof(VTYPE) * DataSize);
@@ -598,6 +653,10 @@ int main(void) {
         block_size = (*num_node_this_level);
 `       thread_size = (NUM_THREAD);
         get_gradient<<<block_size, thread_size>>>(d_nodes, d_data, d_label, d_buffer);
+        set_key_segment<<<block_size, thread_size>>>(d_node, d_key);
+        thrust::inclusive_scan_by_key(thrust::system::cuda::par, d_key, d_key + DataSize, d_buffer, d_buffer); // find G
+        get_gain<<<block_size, thread_size>>>(d_nodes, d_key, d_buffer);
+        // it is inclusive so for split point at index i, data i belong to the left child
         cudaDeviceSynchronize();
         cudaMemcpy(data, d_data, sizeof(attribute_id_pair)* DataSize, cudaMemcpyDeviceToHost);
         cudaMemcpy(nodes, d_nodes, sizeof(node)* MaxNodeNum, cudaMemcpyDeviceToHost);
