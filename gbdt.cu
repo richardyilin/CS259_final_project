@@ -39,6 +39,8 @@ using namespace std;
 # define MinimumSplitNumInstances 1
 # define NUM_THREAD 512
 # define Gamma 0
+# define Left true
+# define Right false
 
 
 
@@ -520,13 +522,14 @@ __attribute__ ((noinline))  void end_roi()   {
 __global__ void get_gradient(node* d_nodes, attribute_id_pair* d_data, VTYPE* d_label, VTYPE* d_buffer) {
     int node_id = blockDim.x;
     __shared__ node cur_node = d_nodes[node_id];
-    int start_index = cur_node.start_index + threadIdx.x;
+    int start_index = cur_node.start_index;
+    int index_of_this_thread = cur_node.start_index + threadIdx.x;
     int num_instances = cur_node.num_instances;
     int end_index = start_index + num_instances * NUM_FEATURE;
     int instance_id;
     VTYPE y, y_hat, gradient;
 
-    for (int index = start_index; index < end_index; index += blockDim.x) {
+    for (int index = index_of_this_thread; index < end_index; index += blockDim.x) {
         attribute_id_pair pair = d_data[index];
         instance_id = pair.instance_id;
         y = d_label[instance_id];
@@ -540,13 +543,14 @@ __global__ void get_gradient(node* d_nodes, attribute_id_pair* d_data, VTYPE* d_
 __global__ void set_key_segment(node* d_nodes, int* d_key) {
     int node_id = blockDim.x;
     __shared__ node cur_node = d_nodes[node_id];
-    int start_index = cur_node.start_index + threadIdx.x;
+    int start_index = cur_node.start_index;
+    int index_of_this_thread = cur_node.start_index + threadIdx.x;
     int num_instances = cur_node.num_instances;
     int end_index = start_index + num_instances * NUM_FEATURE;
     int key, feature_num;
     
 
-    for (int index = start_index; index < end_index; index += blockDim.x) {
+    for (int index = index_of_this_thread; index < end_index; index += blockDim.x) {
         feature_num = (index / num_instances)
         key = node_id * NUM_FEATURE + feature_num;
         d_key[index] = key;
@@ -557,7 +561,8 @@ __global__ void set_key_segment(node* d_nodes, int* d_key) {
 __global__ void get_gain(node* d_nodes, int* d_key, VTYPE* d_buffer) { // d_buffer is prefix sum so far
     int node_id = blockDim.x;
     __shared__ node cur_node = d_nodes[node_id];
-    int start_index = cur_node.start_index + threadIdx.x;
+    int index_of_this_thread = cur_node.start_index + threadIdx.x;
+    int start_index = cur_node.start_index;
     int num_instances = cur_node.num_instances;
     int end_index = start_index + num_instances * NUM_FEATURE;
     VTYPE gain, H_l, H_r, G_l, G_r, G_L_plus_G_r;
@@ -565,7 +570,7 @@ __global__ void get_gain(node* d_nodes, int* d_key, VTYPE* d_buffer) { // d_buff
     int num_left_instance, num_right_instance;
 
     // skip the last instance
-    for (int index = start_index; index < end_index; index += blockDim.x) {
+    for (int index = index_of_this_thread; index < end_index; index += blockDim.x) {
         index_in_segment = index % num_instances;
         if (index_in_segment == NUM_FEATURE - 1) { // the last instance in the feature, cannot split because the right child has no instances
             //d_buffer[index] = 0;
@@ -590,20 +595,21 @@ __global__ void get_gain(node* d_nodes, int* d_key, VTYPE* d_buffer) { // d_buff
     __syncthreads();
 
     // write 0 into last instance
-    start_index = cur_node.start_index + (num_instances * threadIdx.x);
+    int loop_start_index = (cur_node.start_index + (num_instances * threadIdx.x) - 1);
     int increment = num_instances * blockDim.x;
-    for (int index = start_index; index < end_index; index += increment) {
+    for (int index = loop_start_index; index < end_index; index += increment) {
         d_buffer[index] = 0;
     }
 }
 
-__global__ void get_best_split_point(node* d_nodes, VTYPE* d_buffer, int* d_best_split_index) {
+__global__ void get_best_split_point_and_split_direction(node* d_nodes, VTYPE* d_buffer, int* d_best_split_index, int* d_split_direction) {
     int node_id = blockDim.x;
     __shared__ node cur_node = d_nodes[node_id];
     int thread_idx = threadIdx.x
+    int start_index = cur_node.start_index;
     int index_of_this_thread = cur_node.start_index + thread_idx;
     int num_instances = cur_node.num_instances;
-    int end_index = index_of_this_thread + num_instances * NUM_FEATURE;
+    int end_index = start_index + num_instances * NUM_FEATURE;
     VTYPE max_value = 0;
     VTYPE compared_value;
     int max_index = -1;
@@ -639,6 +645,36 @@ __global__ void get_best_split_point(node* d_nodes, VTYPE* d_buffer, int* d_best
 
     if (thread_idx == 0 && max_value > Gamma) {
         d_nodes[node_id].split_index = max_index;
+        int feature_id = (max_index - start_index) / num_instances;
+        d_nodes[node_id].feature_id = feature_id;
+    }
+    __syncthreads();
+
+    // find split direction
+    int split_index = d_nodes[node_id].split_index;
+    int feature_id = d_nodes[node_id].feature_id;
+    int split_start_index = start_index + (feature_id * num_instances);
+    if (split_index == -1) {
+        return;
+    }
+    int instance_id;
+    int left_instance_id;
+    bool go_left = false;
+    for (int index = index_of_this_thread; index < end_index; index += blockDim.x) {
+        instance_id = d_data[index].instance_id;
+        go_left = false;
+        for (int left_index = split_start_index; left_index <= split_index; left_index++) {
+            left_instance_id = d_data[left_index].instance_id;
+            if (instance_id == left_instance_id) {
+                go_left = true;
+                break;
+            }
+        }
+        if (go_left) {
+            d_split_direction[index] = Left;
+        } else {
+            d_split_direction[index] = Right;
+        }
     }
 }
 int main(void) {
@@ -662,8 +698,8 @@ int main(void) {
 
 
     attribute_id_pair *d_data;
-    cudaMalloc((void **)(&d_data), sizeof(VTYPE) * DataSize);
-    cudaMemcpy(d_data, data, sizeof(VTYPE) * DataSize, cudaMemcpyHostToDevice);
+    cudaMalloc((void **)(&d_data), sizeof(attribute_id_pair) * DataSize);
+    cudaMemcpy(d_data, data, sizeof(attribute_id_pair) * DataSize, cudaMemcpyHostToDevice);
 
     int *d_key;
     cudaMalloc((void **)(&d_key), sizeof(int) * DataSize);
@@ -674,6 +710,10 @@ int main(void) {
     
     int *d_best_split_index;
     cudaMalloc((void **)(&d_best_split_index), sizeof(int) * DataSize);
+
+    
+    bool *d_split_direction;
+    cudaMalloc((void **)(&d_split_direction), sizeof(bool) * DataSize);
 
     VTYPE *d_label;
     cudaMalloc((void **)(&d_label), sizeof(VTYPE) * DataSize); // Use d_label instead of label
@@ -715,7 +755,7 @@ int main(void) {
         thrust::inclusive_scan_by_key(thrust::system::cuda::par, d_key, d_key + DataSize, d_buffer, d_buffer); // find G
         get_gain<<<block_size, thread_size>>>(d_nodes, d_key, d_buffer);
         // it is inclusive so for split point at index i, data i belong to the left child
-        get_best_split_point<<<block_size, thread_size>>>(d_nodes, d_buffer, d_best_split_index);
+        get_best_split_point_and_split_direction<<<block_size, thread_size>>>(d_nodes, d_buffer, d_best_split_index, d_split_direction);
         cudaDeviceSynchronize();
         cudaMemcpy(data, d_data, sizeof(attribute_id_pair)* DataSize, cudaMemcpyDeviceToHost);
         cudaMemcpy(nodes, d_nodes, sizeof(node)* MaxNodeNum, cudaMemcpyDeviceToHost);
