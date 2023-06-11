@@ -532,7 +532,7 @@ __attribute__ ((noinline))  void end_roi()   {
 // }
 
 __global__ void get_gradient(node* d_nodes, attribute_id_pair* d_data, VTYPE* d_label, VTYPE* d_buffer) {
-    int node_id = blockDim.x;
+    int node_id = blockIdx.x;
     __shared__ node cur_node;
     cur_node = d_nodes[node_id];
     int start_index = cur_node.start_index;
@@ -554,7 +554,7 @@ __global__ void get_gradient(node* d_nodes, attribute_id_pair* d_data, VTYPE* d_
 
 // a segment is a feature in a node. A feature contains some instances
 __global__ void set_key_segment(node* d_nodes, int* d_key) {
-    int node_id = blockDim.x;
+    int node_id = blockIdx.x;
     __shared__ node cur_node;
     cur_node = d_nodes[node_id];
     int start_index = cur_node.start_index;
@@ -573,7 +573,7 @@ __global__ void set_key_segment(node* d_nodes, int* d_key) {
 
 
 __global__ void get_gain(node* d_nodes, int* d_key, VTYPE* d_buffer) { // d_buffer is prefix sum so far
-    int node_id = blockDim.x;
+    int node_id = blockIdx.x;
     __shared__ node cur_node;
     cur_node = d_nodes[node_id];
     int index_of_this_thread = cur_node.start_index + threadIdx.x;
@@ -618,12 +618,12 @@ __global__ void get_gain(node* d_nodes, int* d_key, VTYPE* d_buffer) { // d_buff
 }
 
 // __global__ void get_best_split_point_and_split_direction(node* d_nodes, VTYPE* d_buffer, int* d_best_split_index, int* d_split_direction) {
-//     int node_id = blockDim.x;
+//     int node_id = blockIdx.x;
 //     __shared__ node cur_node;
 //     cur_node = d_nodes[node_id];
 //     int thread_idx = threadIdx.x;
 //     int start_index = cur_node.start_index;
-//     int index_of_this_thread = cur_node.start_index + thread_idx;
+//     int index_of_this_thread = start_index + thread_idx;
 //     int num_instances = cur_node.num_instances;
 //     int end_index = start_index + num_instances * NUM_FEATURE;
 //     VTYPE max_value = 0;
@@ -694,12 +694,12 @@ __global__ void get_gain(node* d_nodes, int* d_key, VTYPE* d_buffer) { // d_buff
 //     }
 // }
 __global__ void get_best_split_point(node* d_nodes, VTYPE* d_buffer) {
-    int node_id = blockDim.x;
+    int node_id = blockIdx.x;
     __shared__ node cur_node;
     cur_node = d_nodes[node_id];
     int thread_idx = threadIdx.x;
     int start_index = cur_node.start_index;
-    int index_of_this_thread = cur_node.start_index + thread_idx;
+    int index_of_this_thread = start_index + thread_idx;
     int num_instances = cur_node.num_instances;
     int node_size = num_instances * NUM_FEATURE;
     if (thread_idx >= node_size) {
@@ -781,7 +781,29 @@ __global__ void get_best_split_point(node* d_nodes, VTYPE* d_buffer) {
     //     }
     // }
 }
-__global__ void set_counter(node* d_nodes, VTYPE* d_buffer, int* d_counter) {
+__global__ void set_counter(node* d_nodes, VTYPE* d_buffer, int* d_counter, int * d_key) {
+    // the range of counter is [2*blockDim.x:4*BlocDim.x]
+    int node_id = blockIdx.x;
+    int num_thread_per_block = blockDim.x;
+    __shared__ node cur_node;
+    cur_node = d_nodes[node_id];
+    int thread_idx = threadIdx.x;
+    int start_index = cur_node.start_index;
+    int index_of_this_thread = start_index + thread_idx;
+    int num_instances = cur_node.num_instances;
+    int node_size = num_instances * NUM_FEATURE;
+    int index_of_this_thread_counter = 2 * num_thread_per_block + thread_idx;
+    // reset key and counter
+    for (int index = index_of_this_thread_counter; index < 4 * num_thread_per_block; index += num_thread_per_block) {
+        d_key[index] = -1;
+        d_counter[index] = 0; // may not need this
+    }
+    if (thread_idx >= node_size) {
+        return;
+    }
+    num_thread_per_block = min(blockDim.x, node_size);
+    int end_index = start_index + node_size;
+    int counter_start_index = 2 * num_thread_per_block;
     extern __shared__ int counter[];
 }
 
@@ -875,7 +897,7 @@ int main(void) {
         
         int *d_counter;
         cudaMalloc((void **)(&d_counter), sizeof(int) * thread_size.x * (*num_node_this_level) * 2);
-        set_counter<<<block_size, thread_size, dynamic_memory_size>>>(d_nodes, d_buffer, d_counter);
+        set_counter<<<block_size, thread_size, dynamic_memory_size>>>(d_nodes, d_buffer, d_counter, d_key);
         cudaFree(d_counter);
         cudaDeviceSynchronize();
         cudaMemcpy(data, d_data, sizeof(attribute_id_pair)* DataSize, cudaMemcpyDeviceToHost);
