@@ -312,7 +312,7 @@ __global__ void set_key_segment(node* d_nodes, int* d_key, int node_start_id) {
 }
 
 
-__global__ void get_gain(node* d_nodes, int* d_key, VTYPE* d_buffer, int node_start_id) { // d_buffer is prefix sum so far
+__global__ void get_gain(node* d_nodes, VTYPE* d_buffer, int node_start_id) { // d_buffer is prefix sum so far
     int node_id = blockIdx.x + (node_start_id);
     int thread_idx = threadIdx.x;
     __shared__ node cur_node;
@@ -324,7 +324,7 @@ __global__ void get_gain(node* d_nodes, int* d_key, VTYPE* d_buffer, int node_st
     int num_instances = cur_node.num_instances;
     int end_index = start_index + num_instances * NUM_FEATURE;
     VTYPE gain, H_l, H_r, G_l, G_r, G_L_plus_G_r;
-    int index_in_segment, last_instance_index;
+    int index_in_segment, last_local_data_index;
     int num_left_instance, num_right_instance;
 
     // skip the last instance
@@ -340,9 +340,9 @@ __global__ void get_gain(node* d_nodes, int* d_key, VTYPE* d_buffer, int node_st
             d_buffer[index] = 0;
             continue;
         }
-        last_instance_index = (((index / num_instances) + 1) * num_instances) - 1;
+        last_local_data_index = (((index / num_instances) + 1) * num_instances) - 1;
         G_l = d_buffer[index];
-        G_r = d_buffer[last_instance_index] - G_l;
+        G_r = d_buffer[last_local_data_index] - G_l;
         H_l = (index_in_segment + 1) * 2;
         H_r = (num_instances - index_in_segment) * 2;
         G_L_plus_G_r = G_l + G_r;
@@ -569,6 +569,44 @@ __global__ void split_node(node* d_nodes, int* d_counter, int node_start_id, boo
         d_nodes[right_child_id] = right_child;
     }
 }
+
+__global__ void set_key_buffer_for_prediction_value(node* d_nodes, VTYPE* d_buffer, int node_start_id, attribute_id_pair* d_data, int num_node_cur_level, int* d_key, VTYPE* d_label) {
+    int node_id = blockIdx.x + (node_start_id);
+    int thread_idx = threadIdx.x;
+    __shared__ node cur_node;
+    if (thread_idx == 0) {
+        cur_node = d_nodes[node_id];
+    }
+    int num_instances = cur_node.num_instances;
+    int start_index = cur_node.start_index;
+    int start_index_of_this_thread = cur_node.start_index + thread_idx;
+    int end_index = start_index + num_instances;
+    int start_local_data_index = thread_idx;
+    int start_buffer_index = start_index / NUM_FEATURE;
+    int buffer_index;
+    int data_index;
+    int instance_id;
+    for (int local_data_index = start_local_data_index; local_data_index < num_instances; local_data_index += blockDim.x) {
+        buffer_index = start_buffer_index + local_data_index;
+        data_index = start_index + local_data_index;
+        instance_id = d_data[data_index].instance_id;
+        d_buffer[buffer_index] = d_label[instance_id];
+        d_key[buffer_index] = node_id;
+    }
+}
+
+__global__ void set_prediction_value(node* d_nodes, VTYPE* d_buffer, int node_start_id, int num_node_cur_level) {
+    int global_thread_idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (global_thread_idx >= num_node_cur_level) {
+        return;
+    }
+    int node_id = node_start_id + global_thread_idx;
+    node cur_node = d_nodes[node_id];
+    int num_instances = cur_node.num_instances;
+    VTYPE predicted_value = d_buffer[global_thread_idx] / num_instances;
+    cur_node.predicted_value = predicted_value;
+    d_nodes[node_id] = cur_node;
+}
 int main(void) {
     node nodes[MaxNodeNum];
     node root;
@@ -649,10 +687,16 @@ int main(void) {
         cudaMemcpy(d_num_node_next_level, &zero, sizeof(int), cudaMemcpyHostToDevice);
         // cudaMemcpy(d_total_num_nodes, &total_num_nodes, sizeof(int), cudaMemcpyHostToDevice);
         block_size.x = num_node_cur_level;
+        thread_size.x = NUM_THREAD;
+        set_key_buffer_for_prediction_value<<<block_size, thread_size>>>(d_nodes, d_buffer, node_start_id, d_data, num_node_cur_level, d_key, d_label);
+        auto new_end = thrust::reduce_by_key(d_key, d_key + InputNum, d_buffer, d_key, d_buffer);
+        block_size.x = (num_node_cur_level + thread_size.x - 1) / thread_size.x;
+        set_prediction_value<<<block_size, thread_size>>>(d_nodes, d_buffer, node_start_id, num_node_cur_level);
+        block_size.x = num_node_cur_level;
         get_gradient<<<block_size, thread_size>>>(d_nodes, d_data, d_label, d_buffer, node_start_id);
         set_key_segment<<<block_size, thread_size>>>(d_nodes, d_key, node_start_id);
         thrust::inclusive_scan_by_key(thrust::system::cuda::par, d_key, d_key + DataSize, d_buffer, d_buffer); // find G
-        get_gain<<<block_size, thread_size>>>(d_nodes, d_key, d_buffer, node_start_id);
+        get_gain<<<block_size, thread_size>>>(d_nodes, d_buffer, node_start_id);
         // it is inclusive so for split point at index i, data i belong to the left child
         num_cache_entry_per_block = DynamicMemorySize / (sizeof(VTYPE) + sizeof(int)) / (num_node_cur_level);
         thread_size.x = min(num_cache_entry_per_block, NUM_THREAD);
@@ -675,7 +719,14 @@ int main(void) {
         level++;
     }
 
+    block_size.x = num_node_cur_level;
+    thread_size.x = NUM_THREAD;
+    set_key_buffer_for_prediction_value<<<block_size, thread_size>>>(d_nodes, d_buffer, node_start_id, d_data, num_node_cur_level, d_key, d_label);
+    auto new_end = thrust::reduce_by_key(d_key, d_key + InputNum, d_buffer, d_key, d_buffer);
+    block_size.x = (num_node_cur_level + thread_size.x - 1) / thread_size.x;
+    set_prediction_value<<<block_size, thread_size>>>(d_nodes, d_buffer, node_start_id, num_node_cur_level);
     cudaMemcpy(nodes, d_nodes, sizeof(node)* MaxNodeNum, cudaMemcpyDeviceToHost);
+    cudaDeviceSynchronize();
     // begin_roi();
     // classifier_GPU<<<grid_size, block_size>>>(d_data);
     // cudaDeviceSynchronize();
