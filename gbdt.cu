@@ -317,6 +317,7 @@ __global__ void get_gradient(node* d_nodes, attribute_id_pair* d_data, VTYPE* d_
     if (thread_idx == 0) {
         cur_node = d_nodes[node_id];
     }
+    __syncthreads();
     int start_index = cur_node.start_index;
     int start_index_of_this_thread = cur_node.start_index + thread_idx;
     int num_instances = cur_node.num_instances;
@@ -342,6 +343,7 @@ __global__ void set_key_segment(node* d_nodes, int* d_key, int node_start_id) {
     if (thread_idx == 0) {
         cur_node = d_nodes[node_id];
     }
+    __syncthreads();
     int start_index = cur_node.start_index;
     int start_index_of_this_thread = cur_node.start_index + thread_idx;
     int num_instances = cur_node.num_instances;
@@ -364,6 +366,7 @@ __global__ void get_gain(node* d_nodes, VTYPE* d_buffer, int node_start_id) { //
     if (thread_idx == 0) {
         cur_node = d_nodes[node_id];
     }
+    __syncthreads();
     int start_index_of_this_thread = cur_node.start_index + thread_idx;
     int start_index = cur_node.start_index;
     int num_instances = cur_node.num_instances;
@@ -412,6 +415,7 @@ __global__ void get_best_split_point(node* d_nodes, VTYPE* d_buffer, int node_st
     if (thread_idx == 0) {
         cur_node = d_nodes[node_id];
     }
+    __syncthreads();
     int start_index = cur_node.start_index;
     int start_index_of_this_thread = start_index + thread_idx;
     int num_instances = cur_node.num_instances;
@@ -478,6 +482,7 @@ __global__ void set_counter(node* d_nodes, VTYPE* d_buffer, int* d_counter, int 
     if (thread_idx == 0) {
         cur_node = d_nodes[node_id];
     }
+    __syncthreads();
     int split_index = cur_node.split_index;
     int start_index = cur_node.start_index;
     int num_instances = cur_node.num_instances;
@@ -537,6 +542,7 @@ __global__ void split_node(node* d_nodes, int* d_counter, int node_start_id, boo
     if (thread_idx == 0) {
         cur_node = d_nodes[node_id];
     }
+    __syncthreads();
     int split_index = cur_node.split_index;
     if (split_index == -1) {
         return;
@@ -622,6 +628,7 @@ __global__ void set_key_buffer_for_prediction_value(node* d_nodes, VTYPE* d_buff
     if (thread_idx == 0) {
         cur_node = d_nodes[node_id];
     }
+    __syncthreads();
     int num_instances = cur_node.num_instances;
     int start_index = cur_node.start_index;
     int start_index_of_this_thread = cur_node.start_index + thread_idx;
@@ -631,28 +638,46 @@ __global__ void set_key_buffer_for_prediction_value(node* d_nodes, VTYPE* d_buff
     int buffer_index;
     int data_index;
     int instance_id;
+    // if (thread_idx < InputNum){
+    //     printf("thread_idx %d start_local_data_index %d (start_local_data_index < num_instances) %d\n", thread_idx, start_local_data_index, (start_local_data_index < num_instances));
+    // }
     for (int local_data_index = start_local_data_index; local_data_index < num_instances; local_data_index += blockDim.x) {
         buffer_index = start_buffer_index + local_data_index;
         data_index = start_index + local_data_index;
         instance_id = d_data[data_index].instance_id;
         d_buffer[buffer_index] = d_label[instance_id];
         d_key[buffer_index] = node_id;
+        // printf("data_index %d, instance_id %d, buffer_index %d d_buffer[buffer_index] %f d_label[instance_id] %f num_instances %d local_data_index %d thread_idx %d\n", data_index, instance_id, buffer_index, 
+        // d_buffer[buffer_index], d_label[instance_id], num_instances, local_data_index, thread_idx);
     }
 
-    // debug
-    __syncthreads();
-    if (thread_idx == 0) {
-        printf("before sum %f\n" , d_buffer[0]);
-    }
+    // // debug
+    // __syncthreads();
+    // if (thread_idx == 0) {
+    //     // printf("before sum\nbuffer\n");
+    //     // for (int i = 0; i < InputNum; i++){
+    //     //     printf("d_label[%d] %f\n", i, d_label[i]);
+    //     // }
+    //     // for (int i = 0; i < InputNum; i++){
+    //     //     printf("d_label[%d] %f\n", i, d_label[i]);
+    //     // }
+    //     // for (int i = 0; i < InputNum; i++){
+    //     //     printf("d_buffer[%d] %f\n", i, d_buffer[i]);
+    //     // }
+    //     // printf("key\n");
+    //     // for (int i = 0; i < InputNum; i++){
+    //     //     printf("d_key[%d] %f\n", i, d_key[i]);
+    //     // }
+    // }
 }
 
 __global__ void set_prediction_value(node* d_nodes, VTYPE* d_buffer, int node_start_id, int num_node_cur_level) {
     // printf("hello\n");
     int global_thread_idx = blockIdx.x * blockDim.x + threadIdx.x;
     // printf("global_thread_idx %d\n", global_thread_idx);
-    if(global_thread_idx ==0) {
-        printf("sum %f\n" , d_buffer[0]);
-    }
+    // if(global_thread_idx ==0) {
+    //     printf("sum %f\n" , d_buffer[0]);
+    // }
     if (global_thread_idx >= num_node_cur_level) {
         return;
     }
