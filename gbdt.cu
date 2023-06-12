@@ -367,10 +367,25 @@ __global__ void get_gain(node* d_nodes, VTYPE* d_buffer, int node_start_id) { //
         cur_node = d_nodes[node_id];
     }
     __syncthreads();
+    
+
     int start_index_of_this_thread = cur_node.start_index + thread_idx;
     int start_index = cur_node.start_index;
     int num_instances = cur_node.num_instances;
     int end_index = start_index + num_instances * NUM_FEATURE;
+
+    // // debug
+    // __syncthreads();
+    // if (thread_idx == 0){
+    //     printf("G\n");
+    //     printf("blockIdx.x  %d node_id %d\n", blockIdx.x, node_id);
+    //     for (int index = start_index_of_this_thread; index < end_index; index ++) {
+    //         printf("d_buffer[%d] %f\n", index, d_buffer[index]);
+    //     }
+    // }
+    // __syncthreads();
+    // // end of debug
+
     VTYPE gain, H_l, H_r, G_l, G_r, G_L_plus_G_r;
     int index_in_segment, last_local_data_index;
     int num_left_instance, num_right_instance;
@@ -392,10 +407,16 @@ __global__ void get_gain(node* d_nodes, VTYPE* d_buffer, int node_start_id) { //
         G_l = d_buffer[index];
         G_r = d_buffer[last_local_data_index] - G_l;
         H_l = (index_in_segment + 1) * 2;
-        H_r = (num_instances - index_in_segment) * 2;
+        H_r = (num_instances - index_in_segment - 1) * 2;
         G_L_plus_G_r = G_l + G_r;
         gain = ((G_l * G_l / (H_l + Lambda)) + (G_r * G_r / (H_r + Lambda)) - (G_L_plus_G_r * G_L_plus_G_r / (H_l + H_r - Lambda))) * 0.5;
         d_buffer[index] = gain;
+
+        // // debug
+        // if (thread_idx == 0){
+        //     printf("G_l %f G_r %f H_l %f H_r %f gain %f index %d\n", G_l, G_r, H_l, H_r, gain, index);
+        // }
+        // // end of debug
     }
 
     __syncthreads();
@@ -406,6 +427,18 @@ __global__ void get_gain(node* d_nodes, VTYPE* d_buffer, int node_start_id) { //
     for (int index = loop_start_index; index < end_index; index += increment) {
         d_buffer[index] = 0;
     }
+
+    // // debug
+    // __syncthreads();
+    // if (thread_idx == 0){
+    //     printf("gain\n");
+    //     printf("blockIdx.x  %d node_id %d\n", blockIdx.x, node_id);
+    //     for (int index = start_index_of_this_thread; index < end_index; index ++) {
+    //         printf("d_buffer[%d] %f\n", index, d_buffer[index]);
+    //     }
+    // }
+    // __syncthreads();
+    // // end of debug
 }
 
 __global__ void get_best_split_point(node* d_nodes, VTYPE* d_buffer, int node_start_id, attribute_id_pair* d_data) {
