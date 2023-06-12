@@ -709,6 +709,7 @@ __global__ void split_node(node* d_nodes, int* d_counter, int node_start_id, boo
         }
         cur_data = d_data[index];
         d_new_data[new_index] = cur_data;
+        printf("");
         // printf("new_index %d\n", new_index);
         // // debug
         // printf("index %d, direction %d, start_index %d, new_index %d, thread_idx %d\n", index, direction, start_index, new_index, thread_idx);
@@ -972,6 +973,8 @@ int main(void) {
         // // end debug
 
         cudaMemcpy(d_data, d_new_data, sizeof(attribute_id_pair) * DataSize, cudaMemcpyDeviceToDevice);
+        cudaDeviceSynchronize();
+        cuda_check_error();
         // printf("cudaFree\n");
         cudaFree(d_counter);
         // printf("cudaDeviceSynchronize\n");
@@ -990,6 +993,8 @@ int main(void) {
         node_start_id += num_node_cur_level;
         level++;
         cudaMemcpy(&num_node_cur_level, d_num_node_next_level, sizeof(int), cudaMemcpyDeviceToHost);
+        cudaDeviceSynchronize();
+        cuda_check_error();
         // cudaMemcpy(&total_num_nodes, node_start_id, sizeof(int), cudaMemcpyDeviceToHost);
         // printf("node_start_id += num_node_cur_level\n");
     }
@@ -998,7 +1003,11 @@ int main(void) {
     block_size.x = NUM_THREAD;
     // printf("out of loop\nnum_node_cur_level %d, node_start_id %d\n",num_node_cur_level,node_start_id);
     set_key_buffer_for_prediction_value<<<grid_size, block_size>>>(d_nodes, d_buffer, node_start_id, d_data, num_node_cur_level, d_key, d_label);
+    cudaDeviceSynchronize();
+    cuda_check_error();
     auto new_end = thrust::reduce_by_key(thrust::device, d_key, d_key + InputNum, d_buffer, d_key, d_buffer);
+    cudaDeviceSynchronize();
+    cuda_check_error();
     grid_size.x = (num_node_cur_level + block_size.x - 1) / block_size.x;
     set_prediction_value<<<grid_size, block_size>>>(d_nodes, d_buffer, node_start_id, num_node_cur_level);
     cudaMemcpy(nodes, d_nodes, sizeof(node)* MaxNodeNum, cudaMemcpyDeviceToHost);
