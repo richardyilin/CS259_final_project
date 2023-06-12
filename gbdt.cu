@@ -55,7 +55,6 @@ using namespace std;
 # define DynamicMemorySize (1 * GB)
 
 
-
 class node
 {
 public:
@@ -271,268 +270,8 @@ __attribute__ ((noinline))  void end_roi()   {
  std::cout << "elapsed (sec): " << usec/1000000.0 << "\n";
 }
 
-
-
-
-
-
-
-
-// __global__ void tree_GPU(node* d_nodes, attribute_id_pair* d_data, VTYPE* d_label, int* d_num_node_eachlevel,int* d_total_num_nodes )
-// {   
-//     int num_node_this_level = *d_num_node_eachlevel;
-//     int total_num_nodes_this_level = *d_total_num_nodes;
-//     int total_num_nodes_next_level = total_num_nodes_this_level;
-//     int num_node_next_level = 0;
-//     printf("d_nodes[0].num_instances %d\n", d_nodes[0].num_instances);
-//     printf("num_node_this_level %d, total_num_nodes_this_level %d\n", num_node_this_level, total_num_nodes_this_level);
-//     for (int cur_node_id = total_num_nodes_this_level -  num_node_this_level; cur_node_id < total_num_nodes_this_level; cur_node_id++) {
-//             printf("cur_node_id %d, total_num_nodes_this_level %d, (cur_node_id < total_num_nodes_this_level) %d\n", cur_node_id, total_num_nodes_this_level, (cur_node_id < total_num_nodes_this_level));
-//             node cur_node = d_nodes[cur_node_id];
-//             if (cur_node.num_instances < MinimumSplitNumInstances) {
-//                 // printf("cur_node.num_instances %d\n", cur_node.num_instances);
-//                 // printf("continue\n");
-//                 continue;
-//             }
-//             int num_instances= cur_node.num_instances;
-//             int start_index = cur_node.start_index;
-//             int node_size = num_instances* NUM_FEATURE;
-//             VTYPE best_gain = 0;
-//             VTYPE best_split_point = 0;
-//             int best_split_index = -1;
-//             int best_split_index_in_segment = 0;
-//             VTYPE gamma = 0.0;
-//             VTYPE sum_y = 0;
-            
-//             for (int i = start_index ; i < start_index  + num_instances; i++) {
-//                 attribute_id_pair pair = d_data[i];
-//                 int instance_id = pair.instance_id;
-                
-//                 // Access the corresponding label in d_label using the instance_id
-//                 VTYPE y = d_label[instance_id];
-//                 sum_y += y;
-//                 // Perform summation of y or use the value for computation
-//                 // ...
-//             }
-            
-//             // Calculate the mean of sum_y as prediction
-//             VTYPE prediction = sum_y / num_instances;
-
-//             VTYPE Diff[DataSize];
-//             for (int i = start_index ; i < start_index  + node_size; i++) {
-//                 attribute_id_pair pair = d_data[i];
-//                 int instance_id = pair.instance_id;
-                
-//                 // Access the corresponding label in d_label using the instance_id
-//                 VTYPE y = d_label[instance_id];
-//                 Diff[i] = y - prediction;
-//                 // Perform summation of y or use the value for computation
-//                 // ...
-//             }
-            
-//             // Calculate the prefix sum of Diff
-//             VTYPE presum[ DataSize];
-//             presum[start_index ] = Diff[start_index ];
-//             for (int i = start_index + 1; i < start_index  + node_size; i++) { // ? + node_size?
-//                 presum[i] = presum[i-1] + Diff[i];
-//             }
-
-//             for (int j = 0; j < node_size / NUM_FEATURE; j++) {
-//                 for (int k = 0; k < NUM_FEATURE; k++) {
-//                     int instanceId = k * (node_size / NUM_FEATURE) + j;
-
-//                     // Not the last instance in one attribute
-//                     if (((instanceId + 1) % NUM_FEATURE) != 0) {
-//                         VTYPE split_point = (d_data[instanceId].attribute_value + d_data[instanceId + 1].attribute_value) / 2;
-//                         VTYPE G_l = presum[instanceId];
-//                         VTYPE G_r = presum[(k + 1) * (node_size / NUM_FEATURE) - 1] - presum[instanceId];
-//                         VTYPE H_l = (instanceId + 1 ) * 2;
-//                         VTYPE H_r = (node_size + start_index  - instanceId - 1) * 2;
-//                         VTYPE gain = 0.5 * (G_l * G_l / (H_l + GainLambda) + G_r * G_r / (H_r + GainLambda) - (G_l + G_r) * (G_l + G_r) / (H_l + H_r - GainLambda));
-
-//                         if ((gain > best_gain) && (gain > gamma)) {
-
-//                             best_gain = gain;
-//                             best_split_point = split_point;
-//                             best_split_index = j;
-//                             best_split_index_in_segment = k;
-//                         }
-//                     }
-//                 }
-//             }
-//             // printf("1\n");
-//             if (best_split_index == -1) {
-//                 continue;
-//             }
-
-//             VTYPE left_instanceid [InputNum];
-//             for (int split_index = 0; split_index < best_split_index + 1; split_index++) {
-//                 int left_index = best_split_index_in_segment * (num_instances) + split_index;
-
-//                 attribute_id_pair pair = d_data[left_index];
-//                 int original_id = pair.instance_id;
-//                 left_instanceid[split_index] = original_id;
-//             }
-
-//             // VTYPE counter [DataSize];
-//             extern __shared__ int counter [];
-//             for (int i = start_index ; i < start_index  + node_size; i++) {
-//                 attribute_id_pair pair = d_data[i];
-//                 int id = pair.instance_id;
-//                 bool found = false;
-
-//                 // Loop through the left indices array
-//                 for (int j = 0; j < node_size; j++) {
-//                     if (left_instanceid[j] == id) {
-//                         found = true;
-//                         break;
-//                     }
-//                 }
-
-//                 // Check if id is found in left_indices
-//                 if (found) {
-//                     counter[i] = 1;  // Counter for id found in left_indices
-//                 } else {
-//                     counter[i] = 0;  // Counter for id not found in left_indices
-//                 }
-//             }
-            
-//             int getter[2 * NUM_FEATURE] = {0};  // Initialize getter array with 0s
-//             int getter_i = 0;
-
-//             for (int i = 0; i < num_instances* NUM_FEATURE; i += num_instances) {
-//                 int count_1 = 0;
-//                 int count_0 = 0;
-
-//                 for (int j = 0; j < num_instances; j++) {
-//                     if (counter[i + j] == 1) {
-//                         count_1++;  // Increment occurrence of 1
-//                     } else {
-//                         count_0++;  // Increment occurrence of 0
-//                     }
-//                 }
-
-//                 getter[getter_i] = count_1;
-//                 getter[getter_i + 1] = count_0;
-//                 getter_i += 2;
-//             }
-
-//             int getter_group[2 * NUM_FEATURE] = {0};
-//             int leftIndex = 0;
-//             int rightIndex = NUM_FEATURE;
-
-//             for (int i = 0; i < 2 * NUM_FEATURE; i++) {
-//                 if (i % 2 == 0) {
-//                     getter_group[leftIndex] = getter[i];
-//                     leftIndex++;
-//                 } else {
-//                     getter_group[rightIndex] = getter[i];
-//                     rightIndex++;
-//                 }
-//             }
-            
-//             // printf("2\n");
-//             int presum_getter[2 * NUM_FEATURE] = {0};  // Initialize presum_getter array with 0s
-
-//             // Calculate prefix sum of getter
-//             presum_getter[0] = 0;  // First element is 0
-//             for (int i = 1; i < 2 * NUM_FEATURE; i++) {
-//                 presum_getter[i] = presum_getter[i - 1] + getter_group[i - 1];
-//             }
-
-//             attribute_id_pair sorted_data[DataSize];
-
-
-//         // Sort data accoring to prefixsum
-//             for (int f = 0; f < NUM_FEATURE; f++) {
-//                 for (int j = 0; j < num_instances; j++) {
-//                     int instanceId = f * num_instances + j;
-//                     int offset_left = 0;
-//                     int offset_right = 0;
-//                     // Check if d_data[instanceId].instance_id is in left_instanceid
-//                     bool found = false;
-//                     for (int k = 0; k < node_size; k++) {
-//                         if (d_data[instanceId].instance_id == left_instanceid[k]) {
-//                             found = true;
-//                             break;
-//                         }
-//                     }
-
-//                     // Determine offset and assign values to sorted_data based on found flag
-//                     if (found) {
-//                         offset_left = presum_getter[f];
-//                         sorted_data[offset_left] = d_data[instanceId];
-//                         offset_left++;
-//                     } else {
-//                         offset_right = presum_getter[NUM_FEATURE + f];
-//                         sorted_data[offset_right] = d_data[instanceId];
-//                         offset_right++;
-//                     }
-//                 }
-//             }
-//             memcpy(d_data,sorted_data, sizeof(VTYPE) * DataSize);
-//             int new_start_index = -1;
-
-//             // Scan data to find the first element where instance_id is not in left_instanceid
-//             for (int i = 0; i < DataSize; i++) {
-//                 bool found = false;
-//                 for (int j = 0; j < node_size; j++) {
-//                     if (d_data[i].instance_id == left_instanceid[j]) {
-//                         found = true;
-//                         break;
-//                     }
-//                 }
-//                 if (!found) {
-//                     new_start_index = i;
-//                     break;
-//                 }
-//             }
-//             cur_node.start_index = start_index;
-//             cur_node.num_instances = num_instances;
-//             // cur_node.level = level ;
-//             // cur_node.left_child_id = left_child_id;
-//             // cur_node.right_child_id = right_child_id;
-//             cur_node.training_loss = best_gain;
-//             // cur_node.is_leaf = is_leaf;
-//             cur_node.feature_id = best_split_index_in_segment;
-//             cur_node.feature_threshold = best_split_point;
-//             cur_node.split_index = best_split_index;
-
-//             // Create the left child node
-//             node left_child;
-           
-//             left_child.start_index = start_index;
-//             left_child.num_instances = (new_start_index - start_index)/NUM_FEATURE;
-//             left_child.node_id = total_num_nodes_next_level;
-//             d_nodes[total_num_nodes_next_level] = left_child;
-
-//             cur_node.left_child_id = total_num_nodes_next_level;
-            
-//             total_num_nodes_next_level++;
-        
-//             // left_child .level = level + 1;
-
-//             // Create the right child node
-//             node right_child;
-//             right_child.start_index = new_start_index;
-//             right_child.num_instances = (node_size - new_start_index)/ NUM_FEATURE;
-//             right_child.node_id = total_num_nodes_next_level;
-//             // right_child.level = level + 1;
-//             // Assign left and right child nodes to d_nodes array
-//             d_nodes[total_num_nodes_next_level] = right_child;
-            
-//             cur_node.right_child_id = total_num_nodes_next_level;
-//             printf("total_num_nodes_next_level %d\n", total_num_nodes_next_level);
-//             total_num_nodes_next_level++;
-
-//             d_nodes[cur_node_id] = cur_node;
-//         }
-//         *d_total_num_nodes = total_num_nodes_next_level; 
-//         *d_num_node_eachlevel = (total_num_nodes_next_level - total_num_nodes_this_level);
-// }
-
-__global__ void get_gradient(node* d_nodes, attribute_id_pair* d_data, VTYPE* d_label, VTYPE* d_buffer) {
-    int node_id = blockIdx.x;
+__global__ void get_gradient(node* d_nodes, attribute_id_pair* d_data, VTYPE* d_label, VTYPE* d_buffer, int* total_num_nodes) {
+    int node_id = blockIdx.x + (*total_num_nodes);
     __shared__ node cur_node;
     cur_node = d_nodes[node_id];
     int start_index = cur_node.start_index;
@@ -553,8 +292,8 @@ __global__ void get_gradient(node* d_nodes, attribute_id_pair* d_data, VTYPE* d_
 }
 
 // a segment is a feature in a node. A feature contains some instances
-__global__ void set_key_segment(node* d_nodes, int* d_key) {
-    int node_id = blockIdx.x;
+__global__ void set_key_segment(node* d_nodes, int* d_key, int* total_num_nodes) {
+    int node_id = blockIdx.x + (*total_num_nodes);
     __shared__ node cur_node;
     cur_node = d_nodes[node_id];
     int start_index = cur_node.start_index;
@@ -572,8 +311,8 @@ __global__ void set_key_segment(node* d_nodes, int* d_key) {
 }
 
 
-__global__ void get_gain(node* d_nodes, int* d_key, VTYPE* d_buffer) { // d_buffer is prefix sum so far
-    int node_id = blockIdx.x;
+__global__ void get_gain(node* d_nodes, int* d_key, VTYPE* d_buffer, int* total_num_nodes) { // d_buffer is prefix sum so far
+    int node_id = blockIdx.x + (*total_num_nodes);
     __shared__ node cur_node;
     cur_node = d_nodes[node_id];
     int index_of_this_thread = cur_node.start_index + threadIdx.x;
@@ -617,84 +356,8 @@ __global__ void get_gain(node* d_nodes, int* d_key, VTYPE* d_buffer) { // d_buff
     }
 }
 
-// __global__ void get_best_split_point_and_split_direction(node* d_nodes, VTYPE* d_buffer, int* d_best_split_index, int* d_split_direction) {
-//     int node_id = blockIdx.x;
-//     __shared__ node cur_node;
-//     cur_node = d_nodes[node_id];
-//     int thread_idx = threadIdx.x;
-//     int start_index = cur_node.start_index;
-//     int index_of_this_thread = start_index + thread_idx;
-//     int num_instances = cur_node.num_instances;
-//     int end_index = start_index + num_instances * NUM_FEATURE;
-//     VTYPE max_value = 0;
-//     VTYPE compared_value;
-//     int max_index = -1;
-//     for (int index = index_of_this_thread; index < end_index; index += blockDim.x) {
-//         compared_value = d_buffer[index];
-//         if (compared_value > max_value) {
-//             max_value = compared_value;
-//             max_index = index;
-//         }
-//     }
-//     int node_s0ize = cur_node.node_size;
-//     int last_num_active_thread = node_size;
-//     int num_active_thread = (node_size + 1) / 2;
-//     int compared_thread_idx, compared_index;
-//     while (last_num_active_thread > 1) {
-//         if (thread_idx >= num_active_thread && thread_idx < last_num_active_thread) {
-//             d_buffer[index_of_this_thread] = max_value;
-//             d_best_split_index[index_of_this_thread] = max_index;
-//         }
-//         __syncthreads();
-//         compared_thread_idx = thread_idx + num_active_thread;
-//         compared_index = cur_node.start_index + compared_thread_idx;
-//         if (thread_idx < num_active_thread && compared_thread_idx < last_num_active_thread) {
-//             compared_value = d_buffer[compared_index];
-//             if (compared_value > max_value) {
-//                 max_value = compared_value;
-//                 max_index = compared_index;
-//             }
-//         }
-//         last_num_active_thread = num_active_thread;
-//         num_active_thread = (num_active_thread + 1) / 2;
-//     }
-
-//     if (thread_idx == 0 && max_value > Gamma) {
-//         d_nodes[node_id].split_index = max_index;
-//         int feature_id = (max_index - start_index) / num_instances;
-//         d_nodes[node_id].feature_id = feature_id;
-//     }
-//     __syncthreads();
-
-//     // find split direction
-//     int split_index = d_nodes[node_id].split_index;
-//     int feature_id = d_nodes[node_id].feature_id;
-//     int split_start_index = start_index + (feature_id * num_instances);
-//     if (split_index == -1) {
-//         return;
-//     }
-//     int instance_id;
-//     int left_instance_id;
-//     bool go_left = false;
-//     for (int index = index_of_this_thread; index < end_index; index += blockDim.x) {
-//         instance_id = d_data[index].instance_id;
-//         go_left = false;
-//         for (int left_index = split_start_index; left_index <= split_index; left_index++) {
-//             left_instance_id = d_data[left_index].instance_id;
-//             if (instance_id == left_instance_id) {
-//                 go_left = true;
-//                 break;
-//             }
-//         }
-//         if (go_left) {
-//             d_split_direction[index] = Left;
-//         } else {
-//             d_split_direction[index] = Right;
-//         }
-//     }
-// }
-__global__ void get_best_split_point(node* d_nodes, VTYPE* d_buffer) {
-    int node_id = blockIdx.x;
+__global__ void get_best_split_point(node* d_nodes, VTYPE* d_buffer, int* total_num_nodes) {
+    int node_id = blockIdx.x + (*total_num_nodes);
     __shared__ node cur_node;
     cur_node = d_nodes[node_id];
     int thread_idx = threadIdx.x;
@@ -752,59 +415,63 @@ __global__ void get_best_split_point(node* d_nodes, VTYPE* d_buffer) {
             d_nodes[node_id].feature_id = -1;
         }
     }
-    // __syncthreads();
-
-    // // find split direction
-    // int split_index = d_nodes[node_id].split_index;
-    // int feature_id = d_nodes[node_id].feature_id;
-    // int split_start_index = start_index + (feature_id * num_instances);
-    // if (split_index == -1) {
-    //     return;
-    // }
-    // int instance_id;
-    // int left_instance_id;
-    // bool go_left = false;
-    // for (int index = index_of_this_thread; index < end_index; index += blockDim.x) {
-    //     instance_id = d_data[index].instance_id;
-    //     go_left = false;
-    //     for (int left_index = split_start_index; left_index <= split_index; left_index++) {
-    //         left_instance_id = d_data[left_index].instance_id;
-    //         if (instance_id == left_instance_id) {
-    //             go_left = true;
-    //             break;
-    //         }
-    //     }
-    //     if (go_left) {
-    //         d_split_direction[index] = Left;
-    //     } else {
-    //         d_split_direction[index] = Right;
-    //     }
-    // }
 }
-__global__ void set_counter(node* d_nodes, VTYPE* d_buffer, int* d_counter, int * d_key) {
+__global__ void set_counter(node* d_nodes, VTYPE* d_buffer, int* d_counter, int * d_key, int* total_num_nodes, bool *d_split_direction, attribute_id_pair* d_data) {
     // the range of counter is [2*blockDim.x:4*BlocDim.x]
-    int node_id = blockIdx.x;
-    int num_thread_per_block = blockDim.x;
+    int node_id = blockIdx.x + (*total_num_nodes);
     __shared__ node cur_node;
     cur_node = d_nodes[node_id];
+    int split_index = cur_node.split_index;
     int thread_idx = threadIdx.x;
     int start_index = cur_node.start_index;
-    int index_of_this_thread = start_index + thread_idx;
     int num_instances = cur_node.num_instances;
     int node_size = num_instances * NUM_FEATURE;
-    int index_of_this_thread_counter = 2 * num_thread_per_block + thread_idx;
+    int num_thread_per_block = blockDim.x;
+    int left_counter_index = 2 * num_thread_per_block + thread_idx;
+    int right_counter_index = 3 * num_thread_per_block + thread_idx;
     // reset key and counter
-    for (int index = index_of_this_thread_counter; index < 4 * num_thread_per_block; index += num_thread_per_block) {
+    for (int index = left_counter_index; index <= right_counter_index; index += num_thread_per_block) { // can move into if
         d_key[index] = -1;
         d_counter[index] = 0; // may not need this
+    }
+    if (split_index == -1) { // the entire node does not need to split
+        return;
     }
     if (thread_idx >= node_size) {
         return;
     }
     num_thread_per_block = min(blockDim.x, node_size);
-    int end_index = start_index + node_size;
-    int counter_start_index = 2 * num_thread_per_block;
-    extern __shared__ int counter[];
+    int local_counter[2] = {0, 0};
+
+    // find split direction
+    int num_instances_per_thread = (node_size + num_thread_per_block - 1) / num_thread_per_block;
+    int index_of_this_thread = start_index + (thread_idx * num_instances_per_thread);
+    int feature_id = d_nodes[node_id].feature_id;
+    int split_start_index = start_index + (feature_id * num_instances);
+    int end_index = index_of_this_thread + num_instances_per_thread;
+    int instance_id;
+    int left_instance_id;
+    bool go_left = false;
+    for (int index = index_of_this_thread; index < end_index; index++) {
+        instance_id = d_data[index].instance_id;
+        go_left = false;
+        for (int left_index = split_start_index; left_index <= split_index; left_index++) {
+            left_instance_id = d_data[left_index].instance_id;
+            if (instance_id == left_instance_id) {
+                go_left = true;
+                break;
+            }
+        }
+        if (go_left) {
+            d_split_direction[index] = Left;
+            local_counter[0] ++;
+        } else {
+            d_split_direction[index] = Right;
+            local_counter[1] ++;
+        }
+    }
+    d_counter[left_counter_index] = local_counter[0];
+    d_counter[right_counter_index] = local_counter[1];
 }
 
 int main(void) {
@@ -842,8 +509,8 @@ int main(void) {
     // cudaMalloc((void **)(&d_best_split_index), sizeof(int) * DataSize);
 
     
-    // bool *d_split_direction;
-    // cudaMalloc((void **)(&d_split_direction), sizeof(bool) * DataSize);
+    bool *d_split_direction;
+    cudaMalloc((void **)(&d_split_direction), sizeof(bool) * DataSize);
 
     VTYPE *d_label;
     cudaMalloc((void **)(&d_label), sizeof(VTYPE) * DataSize); // Use d_label instead of label
@@ -882,31 +549,32 @@ int main(void) {
     while (level < MaxDepth - 1) {
         printf("level %d\n", level);
         block_size.x = *num_node_this_level;
-        get_gradient<<<block_size, thread_size>>>(d_nodes, d_data, d_label, d_buffer);
-        set_key_segment<<<block_size, thread_size>>>(d_nodes, d_key);
+        get_gradient<<<block_size, thread_size>>>(d_nodes, d_data, d_label, d_buffer, d_total_num_nodes);
+        set_key_segment<<<block_size, thread_size>>>(d_nodes, d_key, d_total_num_nodes);
         thrust::inclusive_scan_by_key(thrust::system::cuda::par, d_key, d_key + DataSize, d_buffer, d_buffer); // find G
-        get_gain<<<block_size, thread_size>>>(d_nodes, d_key, d_buffer);
+        get_gain<<<block_size, thread_size>>>(d_nodes, d_key, d_buffer, d_total_num_nodes);
         // it is inclusive so for split point at index i, data i belong to the left child
         num_cache_entry_per_block = DynamicMemorySize / (sizeof(VTYPE) + sizeof(int)) / (*num_node_this_level);
         thread_size.x = min(num_cache_entry_per_block, NUM_THREAD);
         dynamic_memory_size = thread_size.x * (sizeof(VTYPE) + sizeof(int));
-        get_best_split_point<<<block_size, thread_size, dynamic_memory_size>>>(d_nodes, d_buffer);
-        num_cache_entry_per_block = DynamicMemorySize / sizeof(int) / (*num_node_this_level) / 2;
-        thread_size.x = min(num_cache_entry_per_block, NUM_THREAD);
-        dynamic_memory_size = thread_size.x * sizeof(int) * 2;
+        get_best_split_point<<<block_size, thread_size, dynamic_memory_size>>>(d_nodes, d_buffer, d_total_num_nodes);
+        // num_cache_entry_per_block = DynamicMemorySize / sizeof(int) / (*num_node_this_level) / 2;
+        // thread_size.x = min(num_cache_entry_per_block, NUM_THREAD);
+        // dynamic_memory_size = thread_size.x * sizeof(int) * 2;
         
         int *d_counter;
         cudaMalloc((void **)(&d_counter), sizeof(int) * thread_size.x * (*num_node_this_level) * 2);
-        set_counter<<<block_size, thread_size, dynamic_memory_size>>>(d_nodes, d_buffer, d_counter, d_key);
+        set_counter<<<block_size, thread_size>>>(d_nodes, d_buffer, d_counter, d_key, d_total_num_nodes, d_split_direction, d_data);
         cudaFree(d_counter);
         cudaDeviceSynchronize();
-        cudaMemcpy(data, d_data, sizeof(attribute_id_pair)* DataSize, cudaMemcpyDeviceToHost);
-        cudaMemcpy(nodes, d_nodes, sizeof(node)* MaxNodeNum, cudaMemcpyDeviceToHost);
+        // cudaMemcpy(data, d_data, sizeof(attribute_id_pair)* DataSize, cudaMemcpyDeviceToHost);
+        // cudaMemcpy(nodes, d_nodes, sizeof(node)* MaxNodeNum, cudaMemcpyDeviceToHost);
         cudaMemcpy(num_node_this_level, d_num_node_eachlevel, sizeof(int), cudaMemcpyDeviceToHost);
         cudaMemcpy(total_num_nodes, d_total_num_nodes, sizeof(int), cudaMemcpyDeviceToHost);
         level++;
     }
 
+    cudaMemcpy(nodes, d_nodes, sizeof(node)* MaxNodeNum, cudaMemcpyDeviceToHost);
     // begin_roi();
     // classifier_GPU<<<grid_size, block_size>>>(d_data);
     // cudaDeviceSynchronize();
