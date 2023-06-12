@@ -608,10 +608,7 @@ __global__ void set_counter(node* d_nodes, VTYPE* d_buffer, int* d_counter, int 
     //     }
     // }
 }
-
-__global__ void split_node(node* d_nodes, int* d_counter, int node_start_id, bool *d_split_direction, attribute_id_pair* d_data, 
-int* d_lock, int* d_num_node_next_level, attribute_id_pair* d_new_data, int num_node_cur_level) {
-    // printf("4 d_nodes[0].split_index %d\n",d_nodes[0].split_index);
+__global__ void creat_child_nodes(node* d_nodes, int node_start_id, int* d_lock, int* d_num_node_next_level, int num_node_cur_level) {
     int node_id = blockIdx.x + (node_start_id);
     int thread_idx = threadIdx.x;
     __shared__ node cur_node;
@@ -642,7 +639,45 @@ int* d_lock, int* d_num_node_next_level, attribute_id_pair* d_new_data, int num_
             }
         }
     }
-    // move data
+    if (thread_idx == 0) {
+        int next_node_start_id = node_start_id + num_node_cur_level;
+        int left_child_id = next_node_start_id + num_node_next_level;
+        int right_child_id = left_child_id + 1;
+        cur_node.left_child_id = left_child_id;
+        cur_node.right_child_id = right_child_id;
+        d_nodes[node_id] = cur_node;
+
+        node left_child;
+        int left_child_num_instance = ((split_index - start_index) % num_instances) + 1;
+        left_child.num_instances = left_child_num_instance;
+        left_child.start_index = start_index;
+        d_nodes[left_child_id] = left_child;
+
+        node right_child;
+        right_child.num_instances = num_instances - left_child_num_instance;
+        right_child.start_index = start_index + (left_child_num_instance * NUM_FEATURE);
+        d_nodes[right_child_id] = right_child;
+    }
+}
+__global__ void split_node(node* d_nodes, int* d_counter, int node_start_id, bool *d_split_direction, attribute_id_pair* d_data, attribute_id_pair* d_new_data) {
+    // printf("4 d_nodes[0].split_index %d\n",d_nodes[0].split_index);
+    int node_id = blockIdx.x + (node_start_id);
+    int thread_idx = threadIdx.x;
+    __shared__ node cur_node;
+    if (thread_idx == 0) {
+        cur_node = d_nodes[node_id];
+    }
+    __syncthreads();
+    int split_index = cur_node.split_index;
+    if (split_index == -1) {
+        return;
+    }
+    int start_index = cur_node.start_index;
+    int num_instances = cur_node.num_instances;
+    int node_size = num_instances * NUM_FEATURE;
+    if (thread_idx >= node_size) {
+        return;
+    }
     int num_thread_per_block = min(blockDim.x, node_size);
     int global_counter_start_index = min(start_index, 2 * blockIdx.x * blockDim.x);
     int left_counter_index = global_counter_start_index + thread_idx;
@@ -662,6 +697,7 @@ int* d_lock, int* d_num_node_next_level, attribute_id_pair* d_new_data, int num_
     bool direction;
     int new_index;
     attribute_id_pair cur_data;
+    // printf("start_index_of_this_thread %d, end_index %d thread_idx %d\n", start_index_of_this_thread, end_index,thread_idx);
     for (int index = start_index_of_this_thread; index < end_index; index++) {
         direction = d_split_direction[index];
         if (direction == Left) {
@@ -673,42 +709,21 @@ int* d_lock, int* d_num_node_next_level, attribute_id_pair* d_new_data, int num_
         }
         cur_data = d_data[index];
         d_new_data[new_index] = cur_data;
+        __syncthreads();
+        // printf("new_index %d\n", new_index);
         // // debug
+        // printf("index %d, direction %d, start_index %d, new_index %d, thread_idx %d\n", index, direction, start_index, new_index, thread_idx);
         // if (cur_data.instance_id == 3) {
         //     printf("d_new_data[%d].instance_id %d, d_new_data[%d].attribute_value %f index %d\n",
         //      new_index, d_new_data[new_index].instance_id, new_index, d_new_data[new_index].attribute_value, index);
         // }
     }
 
+    // printf("hello\n");
     // create two new nodes
     // printf("create two new nodes\n");
 
-    if (thread_idx == 0) {
-        int next_node_start_id = node_start_id + num_node_cur_level;
-        int left_child_id = next_node_start_id + num_node_next_level;
-        int right_child_id = left_child_id + 1;
-        cur_node.left_child_id = left_child_id;
-        cur_node.right_child_id = right_child_id;
-        d_nodes[node_id] = cur_node;
 
-        node left_child;
-        int left_child_num_instance = ((split_index - start_index) % num_instances) + 1;
-        left_child.num_instances = left_child_num_instance;
-        left_child.start_index = start_index;
-        d_nodes[left_child_id] = left_child;
-
-        node right_child;
-        right_child.num_instances = num_instances - left_child_num_instance;
-        right_child.start_index = start_index + (left_child_num_instance * NUM_FEATURE);
-        d_nodes[right_child_id] = right_child;
-
-        // // debug
-        // printf("prefix sum counter\n");
-        // for (int i = 0; i < blockDim.x * 2; i++) {
-        //     printf("d_counter[%d] %d\n", i, d_counter[i]);
-        // }
-        // printf("left child id %d, start index %d, num_instances %d\n", left_child_id, d_nodes[left_child_id].start_index, d_nodes[left_child_id].num_instances);
-    }
     
     // printf("2 d_nodes[0].split_index %d\n",d_nodes[0].split_index);
 }
@@ -937,7 +952,10 @@ int main(void) {
         cudaDeviceSynchronize();
         cuda_check_error();
         // printf("split_node\n");
-        split_node<<<grid_size, block_size>>>(d_nodes, d_counter, node_start_id, d_split_direction, d_data, d_lock, d_num_node_next_level, d_new_data, num_node_cur_level);
+        creat_child_nodes<<<grid_size, 1>>>(d_nodes, node_start_id, d_lock, d_num_node_next_level, num_node_cur_level);
+        cudaDeviceSynchronize();
+        cuda_check_error();
+        split_node<<<grid_size, block_size>>>(d_nodes, d_counter, node_start_id, d_split_direction, d_data, d_new_data);
         cudaDeviceSynchronize();
         cuda_check_error();
         
