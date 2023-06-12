@@ -709,7 +709,6 @@ __global__ void split_node(node* d_nodes, int* d_counter, int node_start_id, boo
         }
         cur_data = d_data[index];
         d_new_data[new_index] = cur_data;
-        __syncthreads();
         // printf("new_index %d\n", new_index);
         // // debug
         // printf("index %d, direction %d, start_index %d, new_index %d, thread_idx %d\n", index, direction, start_index, new_index, thread_idx);
