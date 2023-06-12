@@ -467,17 +467,23 @@ __global__ void get_best_split_point(node* d_nodes, VTYPE* d_buffer, int node_st
             max_value = compared_value;
             max_index = index;
         }
+        // printf("max_value %f, max_index %d thread_idx %d\n", max_value, max_index, thread_idx);
     }
-    extern __shared__ VTYPE max_values[];
-    extern __shared__ int max_indices[];
+    extern __shared__ VTYPE shared_mem[];
+    VTYPE* max_values = reinterpret_cast<VTYPE*>(shared_mem);
+    int* max_indices = reinterpret_cast<int*>(shared_mem + num_thread_per_block * sizeof(VTYPE));
 
     int last_num_active_thread = num_thread_per_block;
     int num_active_thread = (last_num_active_thread + 1) / 2;
     int compared_thread_idx, compared_index;
     while (last_num_active_thread > 1) {
         if (thread_idx >= num_active_thread && thread_idx < last_num_active_thread) {
-            max_values[start_index_of_this_thread] = max_value;
-            max_indices[start_index_of_this_thread] = max_index;
+            max_values[thread_idx] = max_value;
+            max_indices[thread_idx] = max_index;
+            // if (thread_idx == 5){
+            //     printf("max_value %f, max_index %d thread_idx %d max_values[%d] %f max_indices[%d] %f\n", 
+            //     max_value, max_index, thread_idx, thread_idx, max_values[thread_idx], thread_idx, max_indices[thread_idx]);
+            // }
         }
         __syncthreads();
         compared_thread_idx = thread_idx + num_active_thread;
@@ -486,11 +492,15 @@ __global__ void get_best_split_point(node* d_nodes, VTYPE* d_buffer, int node_st
             compared_value = max_values[compared_index];
             if (compared_value > max_value) {
                 max_value = compared_value;
-                max_index = compared_index;
+                max_index = max_indices[compared_index];
             }
         }
         last_num_active_thread = num_active_thread;
         num_active_thread = (num_active_thread + 1) / 2;
+        // if (thread_idx == 1){
+        //     printf("max_value %f, max_index %d thread_idx %d last_num_active_thread %d compared_value %f, compared_index %d\n", 
+        //     max_value, max_index, thread_idx, last_num_active_thread, compared_value, compared_index);
+        // }
     }
 
     if (thread_idx == 0) {
@@ -506,6 +516,14 @@ __global__ void get_best_split_point(node* d_nodes, VTYPE* d_buffer, int node_st
             d_nodes[node_id].feature_threshold = 0.0;
         }
     }
+    // // debug
+    // __syncthreads();
+    // if (thread_idx == 0){
+    //     printf("max gain\n");
+    //     printf("max_value %f, max_index%d\n", max_value, max_index);
+    // }
+    // __syncthreads();
+    // // end of debug
 }
 __global__ void set_counter(node* d_nodes, VTYPE* d_buffer, int* d_counter, int * d_key, int node_start_id, bool *d_split_direction, attribute_id_pair* d_data) {
     // the range of counter is [2*blockDim.x:4*BlocDim.x]
@@ -849,6 +867,7 @@ int main(void) {
         num_cache_entry_per_block = DynamicMemorySize / (sizeof(VTYPE) + sizeof(int)) / (num_node_cur_level);
         block_size = dim3(min(num_cache_entry_per_block, NUM_THREAD));
         dynamic_memory_size = block_size.x * (sizeof(VTYPE) + sizeof(int));
+        // printf("dynamic_memory_size %d\n", dynamic_memory_size);
         // printf("get_best_split_point\n");
         get_best_split_point<<<grid_size, block_size, dynamic_memory_size>>>(d_nodes, d_buffer, node_start_id, d_data);
         cudaDeviceSynchronize();
