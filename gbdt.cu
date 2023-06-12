@@ -474,6 +474,66 @@ __global__ void set_counter(node* d_nodes, VTYPE* d_buffer, int* d_counter, int 
     d_counter[right_counter_index] = local_counter[1];
 }
 
+__global__ void split_node(node* d_nodes, int* d_counter, int* total_num_nodes, bool *d_split_direction, attribute_id_pair* d_data, int* d_lock, int* d_num_node_cur_level) {
+    int node_id = blockIdx.x + (*total_num_nodes);
+    __shared__ node cur_node;
+    cur_node = d_nodes[node_id];
+    int split_index = cur_node.split_index;
+    if (split_index == -1) {
+        return;
+    }
+    __shared__ int num_node_cur_level;
+    if (thread_idx == 0) {
+        bool wait_lock = true;
+        while (wait_lock) {
+            if(atomicCAS(d_lock, 0, 1) == 0){
+                num_node_cur_level = *d_num_node_cur_level;
+                atomicAdd(d_num_node_cur_level, 2);
+                atomicExch(d_lock, 0);
+                wait_lock = false;
+            }
+        }
+    }
+    int thread_idx = threadIdx.x;
+    int start_index = cur_node.start_index;
+    int num_instances = cur_node.num_instances;
+    int node_size = num_instances * NUM_FEATURE;
+    int num_thread_per_block = blockDim.x;
+    int left_counter_index = 2 * num_thread_per_block + thread_idx;
+    int right_counter_index = 3 * num_thread_per_block + thread_idx;
+    num_thread_per_block = min(blockDim.x, node_size);
+    int local_counter[2];
+    local_counter[0] = d_counter[left_counter_index];
+    local_counter[1] = d_counter[right_counter_index];
+
+    // find split direction
+    int num_instances_per_thread = (node_size + num_thread_per_block - 1) / num_thread_per_block;
+    int index_of_this_thread = start_index + (thread_idx * num_instances_per_thread);
+    int feature_id = d_nodes[node_id].feature_id;
+    int split_start_index = start_index + (feature_id * num_instances);
+    int end_index = index_of_this_thread + num_instances_per_thread;
+    int instance_id;
+    int left_instance_id;
+    bool go_left = false;
+    for (int index = index_of_this_thread; index < end_index; index++) {
+        instance_id = d_data[index].instance_id;
+        go_left = false;
+        for (int left_index = split_start_index; left_index <= split_index; left_index++) {
+            left_instance_id = d_data[left_index].instance_id;
+            if (instance_id == left_instance_id) {
+                go_left = true;
+                break;
+            }
+        }
+        if (go_left) {
+            d_split_direction[index] = Left;
+            local_counter[0] ++;
+        } else {
+            d_split_direction[index] = Right;
+            local_counter[1] ++;
+        }
+    }
+}
 int main(void) {
     node nodes[MaxNodeNum];
     node root;
@@ -529,48 +589,54 @@ int main(void) {
  
 
     int level = 0;
-    int *d_num_node_eachlevel;
-    int value = 1;
-    int *num_node_this_level = &value;
-    cudaMalloc((int **)(&d_num_node_eachlevel), sizeof(int)); // Use d_label instead of label
-    cudaMemcpy(d_num_node_eachlevel, num_node_this_level, sizeof(int), cudaMemcpyHostToDevice);
+
+    int *d_num_node_cur_level;
+    cudaMalloc((int **)(&d_num_node_cur_level), sizeof(int)); // Use d_label instead of label
 
     int *d_total_num_nodes;
-    int *total_num_nodes = &value;
     cudaMalloc((int **)(&d_total_num_nodes), sizeof(int)); // Use d_label instead of label
-    cudaMemcpy(d_total_num_nodes, total_num_nodes, sizeof(int), cudaMemcpyHostToDevice);
+
+    const int zero = 0;
+    int* d_lock;
+    cudaMalloc((int **)(&d_lock), sizeof(int)); // Use d_label instead of label
+    cudaMemcpy(d_lock, &zero, sizeof(int), cudaMemcpyHostToDevice);
 
     
 
-    dim3 block_size(*num_node_this_level, 0, 0);
+    int num_node_cur_level = 1;
+    int total_num_nodes = 1;
+    dim3 block_size(num_node_cur_level, 0, 0);
     dim3 thread_size(NUM_THREAD, 0, 0);
     int num_cache_entry_per_block;
     int dynamic_memory_size;
     while (level < MaxDepth - 1) {
-        printf("level %d\n", level);
-        block_size.x = *num_node_this_level;
+        // printf("level %d\n", level);
+        cudaMemcpy(d_num_node_cur_level, &zero, sizeof(int), cudaMemcpyHostToDevice);
+        cudaMemcpy(d_total_num_nodes, &total_num_nodes, sizeof(int), cudaMemcpyHostToDevice);
+        block_size.x = num_node_cur_level;
         get_gradient<<<block_size, thread_size>>>(d_nodes, d_data, d_label, d_buffer, d_total_num_nodes);
         set_key_segment<<<block_size, thread_size>>>(d_nodes, d_key, d_total_num_nodes);
         thrust::inclusive_scan_by_key(thrust::system::cuda::par, d_key, d_key + DataSize, d_buffer, d_buffer); // find G
         get_gain<<<block_size, thread_size>>>(d_nodes, d_key, d_buffer, d_total_num_nodes);
         // it is inclusive so for split point at index i, data i belong to the left child
-        num_cache_entry_per_block = DynamicMemorySize / (sizeof(VTYPE) + sizeof(int)) / (*num_node_this_level);
+        num_cache_entry_per_block = DynamicMemorySize / (sizeof(VTYPE) + sizeof(int)) / (num_node_cur_level);
         thread_size.x = min(num_cache_entry_per_block, NUM_THREAD);
         dynamic_memory_size = thread_size.x * (sizeof(VTYPE) + sizeof(int));
         get_best_split_point<<<block_size, thread_size, dynamic_memory_size>>>(d_nodes, d_buffer, d_total_num_nodes);
-        // num_cache_entry_per_block = DynamicMemorySize / sizeof(int) / (*num_node_this_level) / 2;
+        // num_cache_entry_per_block = DynamicMemorySize / sizeof(int) / (*num_node_cur_level) / 2;
         // thread_size.x = min(num_cache_entry_per_block, NUM_THREAD);
         // dynamic_memory_size = thread_size.x * sizeof(int) * 2;
         
         int *d_counter;
-        cudaMalloc((void **)(&d_counter), sizeof(int) * thread_size.x * (*num_node_this_level) * 2);
+        cudaMalloc((void **)(&d_counter), sizeof(int) * thread_size.x * (num_node_cur_level) * 2);
         set_counter<<<block_size, thread_size>>>(d_nodes, d_buffer, d_counter, d_key, d_total_num_nodes, d_split_direction, d_data);
+        thrust::inclusive_scan_by_key(thrust::system::cuda::par, d_key, d_key + (thread_size.x * 2), d_counter, d_counter); // find G
         cudaFree(d_counter);
         cudaDeviceSynchronize();
         // cudaMemcpy(data, d_data, sizeof(attribute_id_pair)* DataSize, cudaMemcpyDeviceToHost);
         // cudaMemcpy(nodes, d_nodes, sizeof(node)* MaxNodeNum, cudaMemcpyDeviceToHost);
-        cudaMemcpy(num_node_this_level, d_num_node_eachlevel, sizeof(int), cudaMemcpyDeviceToHost);
-        cudaMemcpy(total_num_nodes, d_total_num_nodes, sizeof(int), cudaMemcpyDeviceToHost);
+        cudaMemcpy(&num_node_cur_level, d_num_node_cur_level, sizeof(int), cudaMemcpyDeviceToHost);
+        cudaMemcpy(&total_num_nodes, d_total_num_nodes, sizeof(int), cudaMemcpyDeviceToHost);
         level++;
     }
 
@@ -601,7 +667,7 @@ for (int i = 0; i < MaxNodeNum; i++) {
     cudaFree(d_label);
     cudaFree(d_buffer);
     cudaFree(d_key);
-    cudaFree(d_num_node_eachlevel);
+    cudaFree(d_num_node_cur_level);
     cudaFree(d_total_num_nodes);
 }
 
