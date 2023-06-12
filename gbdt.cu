@@ -15,6 +15,8 @@
 #include <thrust/iterator/zip_iterator.h>
 #include <thrust/sequence.h>
 #include <thrust/functional.h>
+#include <functional>
+// #include <helper_cuda.h>
 
 
 
@@ -34,8 +36,8 @@ using namespace std;
 
 //Define the parameters if not defined externally
 #ifndef cmd_def
-#define InputNum 2  // Number of input data points (instances)
-#define NUM_FEATURE 2  // Number of features in an instance
+#define InputNum 4  // Number of input data points (instances)
+#define NUM_FEATURE 4  // Number of features in an instance
 #define MaxDepth 2  // Number of features in an instance
 # define MaxNodeNum (static_cast<int>(pow(2, MaxDepth)) - 1)
 #endif
@@ -169,30 +171,73 @@ void read_input(attribute_id_pair* data, VTYPE* label) {
     //             }
     //         }  
     //     }
-    for (int i = 0; i < NUM_FEATURE; i++) {
-        for (int j = 0; j < InputNum; j++) {
-            attribute_id_pair pair;
-            int id = i * InputNum + j;
-            pair.attribute_value = VTYPE(id);
-            pair.instance_id = id;
-            data[id] = pair;
-        }
+    // for (int i = 0; i < NUM_FEATURE; i++) {
+    //     for (int j = 0; j < InputNum; j++) {
+    //         attribute_id_pair pair;
+    //         int id = i * InputNum + j;
+    //         pair.attribute_value = VTYPE(id);
+    //         pair.instance_id = id;
+    //         data[id] = pair;
+    //     }
+    // }
+
+    // for (int i = 0; i < DataSize; i++){
+    //     label[i] = i;
+    //     }
+    // }
+    data[0].attribute_value = 0.160000;
+    data[0].instance_id = 0;
+    data[1].attribute_value = 1.580000;
+    data[1].instance_id = 3;
+    data[2].attribute_value = 2.830000;
+    data[2].instance_id = 2;
+    data[3].attribute_value = 3.760000;
+    data[3].instance_id = 1;
+    data[4].attribute_value = 0.160000;
+    data[4].instance_id = 0;
+    data[5].attribute_value = 1.580000;
+    data[5].instance_id = 1;
+    data[6].attribute_value = 2.830000;
+    data[6].instance_id = 2;
+    data[7].attribute_value = 3.760000;
+    data[7].instance_id = 3;
+    data[8].attribute_value = 0.160000;
+    data[8].instance_id = 0;
+    data[9].attribute_value = 1.580000;
+    data[9].instance_id = 3;
+    data[10].attribute_value = 2.830000;
+    data[10].instance_id = 2;
+    data[11].attribute_value = 3.760000;
+    data[11].instance_id = 1;
+    data[12].attribute_value = 0.160000;
+    data[12].instance_id = 0;
+    data[13].attribute_value = 1.580000;
+    data[13].instance_id = 1;
+    data[14].attribute_value = 2.830000;
+    data[14].instance_id = 2;
+    data[15].attribute_value = 3.760000;
+    data[15].instance_id = 3;
+
+    label[0] = 0;
+    label[1] = 1;
+    label[2] = 2;
+    label[3] = 3;
+}
+
+
+
+
+
+
+
+
+inline void cuda_check_error() {
+    auto err = cudaGetLastError();
+    if(err) {
+      std::cerr << "Error: " << cudaGetErrorString(err) << std::endl;
+      exit(0);
     }
-
-    for (int i = 0; i < DataSize; i++){
-        label[i] = i;
-        }
-    }
-
-
-
-
-
-
-
-
-
-
+  }
 
 
 
@@ -593,10 +638,21 @@ __global__ void set_key_buffer_for_prediction_value(node* d_nodes, VTYPE* d_buff
         d_buffer[buffer_index] = d_label[instance_id];
         d_key[buffer_index] = node_id;
     }
+
+    // debug
+    __syncthreads();
+    if (thread_idx == 0) {
+        printf("before sum %f\n" , d_buffer[0]);
+    }
 }
 
 __global__ void set_prediction_value(node* d_nodes, VTYPE* d_buffer, int node_start_id, int num_node_cur_level) {
+    // printf("hello\n");
     int global_thread_idx = blockIdx.x * blockDim.x + threadIdx.x;
+    // printf("global_thread_idx %d\n", global_thread_idx);
+    if(global_thread_idx ==0) {
+        printf("sum %f\n" , d_buffer[0]);
+    }
     if (global_thread_idx >= num_node_cur_level) {
         return;
     }
@@ -618,7 +674,7 @@ int main(void) {
     
     
     attribute_id_pair data[DataSize];
-    VTYPE label [DataSize];
+    VTYPE label [InputNum];
     read_input(data, label);
     cout << "starting program\n";
     // fill_data(data);
@@ -626,15 +682,20 @@ int main(void) {
 
 
     attribute_id_pair *d_data;
+    // checkCudaErrors(cudaMalloc((void **)(&d_data), sizeof(attribute_id_pair) * DataSize));
     cudaMalloc((void **)(&d_data), sizeof(attribute_id_pair) * DataSize);
+    // checkCudaErrors(cudaMemcpy(d_data, data, sizeof(attribute_id_pair) * DataSize, cudaMemcpyHostToDevice));
     cudaMemcpy(d_data, data, sizeof(attribute_id_pair) * DataSize, cudaMemcpyHostToDevice);
     attribute_id_pair *d_new_data;
+    // checkCudaErrors(cudaMalloc((void **)(&d_new_data), sizeof(attribute_id_pair) * DataSize));
     cudaMalloc((void **)(&d_new_data), sizeof(attribute_id_pair) * DataSize);
 
     int *d_key;
+    // checkCudaErrors(cudaMalloc((void **)(&d_key), sizeof(int) * DataSize));
     cudaMalloc((void **)(&d_key), sizeof(int) * DataSize);
 
     VTYPE *d_buffer;
+    // checkCudaErrors(cudaMalloc((void **)(&d_buffer), sizeof(VTYPE) * DataSize));
     cudaMalloc((void **)(&d_buffer), sizeof(VTYPE) * DataSize);
 
     
@@ -643,18 +704,21 @@ int main(void) {
 
     
     bool *d_split_direction;
+    // checkCudaErrors(cudaMalloc((void **)(&d_split_direction), sizeof(bool) * DataSize));
     cudaMalloc((void **)(&d_split_direction), sizeof(bool) * DataSize);
 
     VTYPE *d_label;
-    cudaMalloc((void **)(&d_label), sizeof(VTYPE) * DataSize); // Use d_label instead of label
-    cudaMemcpy(d_label, label, sizeof(VTYPE) * DataSize, cudaMemcpyHostToDevice);
+    // checkCudaErrors(cudaMalloc((void **)(&d_label), sizeof(VTYPE) * DataSize)); // Use d_label instead of label
+    cudaMalloc((void **)(&d_label), sizeof(VTYPE) * InputNum);
+    // checkCudaErrors(cudaMemcpy(d_label, label, sizeof(VTYPE) * DataSize, cudaMemcpyHostToDevice));
+    cudaMemcpy(d_label, label, sizeof(VTYPE) * InputNum, cudaMemcpyHostToDevice);
 
-    // dim3 block_size(512); //test, may change in different levels in a tree, calculated by a formula
-    // dim3 grid_size(16, 16); //test, may change in different levels in a tree, calculated by a formula
     // Allocate memory on the GPU
     node *d_nodes;
+    // checkCudaErrors(cudaMalloc((void**)&d_nodes, sizeof(node) * MaxNodeNum));
     cudaMalloc((void**)&d_nodes, sizeof(node) * MaxNodeNum);
     // Copy the nodes array to the GPU
+    // checkCudaErrors(cudaMemcpy(d_nodes, nodes, sizeof(node) * MaxNodeNum, cudaMemcpyHostToDevice));
     cudaMemcpy(d_nodes, nodes, sizeof(node) * MaxNodeNum, cudaMemcpyHostToDevice);
     
 
@@ -664,71 +728,119 @@ int main(void) {
     int level = 0;
 
     int *d_num_node_next_level;
-    cudaMalloc((int **)(&d_num_node_next_level), sizeof(int)); // Use d_label instead of label
+    // checkCudaErrors(cudaMalloc((int **)(&d_num_node_next_level), sizeof(int))); // Use d_label instead of label
+    cudaMalloc((int **)(&d_num_node_next_level), sizeof(int));
 
     // int *d_total_num_nodes;
     // cudaMalloc((int **)(&d_total_num_nodes), sizeof(int)); // Use d_label instead of label
 
     const int zero = 0;
     int* d_lock;
-    cudaMalloc((int **)(&d_lock), sizeof(int)); // Use d_label instead of label
-    cudaMemcpy(d_lock, &zero, sizeof(int), cudaMemcpyHostToDevice);
+    // checkCudaErrors(cudaMalloc((int **)(&d_lock), sizeof(int))); // Use d_label instead of label
+    cudaMalloc((int **)(&d_lock), sizeof(int));
+    // checkCudaErrors(cudaMemset(d_lock, 0, sizeof(int)));
+    cudaMemset(d_lock, 0, sizeof(int));
+    cuda_check_error();
 
     
 
     int num_node_cur_level = 1;
     int node_start_id = 0;
-    dim3 block_size(num_node_cur_level, 0, 0);
-    dim3 thread_size(NUM_THREAD, 0, 0);
+    dim3 grid_size(num_node_cur_level, 0, 0);
+    dim3 block_size(NUM_THREAD, 0, 0);
     int num_cache_entry_per_block;
     int dynamic_memory_size;
     while (level < MaxDepth - 1) {
-        // printf("level %d\n", level);
-        cudaMemcpy(d_num_node_next_level, &zero, sizeof(int), cudaMemcpyHostToDevice);
+        printf("level %d\n", level);
+        // checkCudaErrors(cudaMemset(d_num_node_next_level, 0, sizeof(int)));
+        cudaMemset(d_num_node_next_level, 0, sizeof(int));
         // cudaMemcpy(d_total_num_nodes, &total_num_nodes, sizeof(int), cudaMemcpyHostToDevice);
-        block_size.x = num_node_cur_level;
-        thread_size.x = NUM_THREAD;
-        set_key_buffer_for_prediction_value<<<block_size, thread_size>>>(d_nodes, d_buffer, node_start_id, d_data, num_node_cur_level, d_key, d_label);
-        auto new_end = thrust::reduce_by_key(d_key, d_key + InputNum, d_buffer, d_key, d_buffer);
-        block_size.x = (num_node_cur_level + thread_size.x - 1) / thread_size.x;
-        set_prediction_value<<<block_size, thread_size>>>(d_nodes, d_buffer, node_start_id, num_node_cur_level);
-        block_size.x = num_node_cur_level;
-        get_gradient<<<block_size, thread_size>>>(d_nodes, d_data, d_label, d_buffer, node_start_id);
-        set_key_segment<<<block_size, thread_size>>>(d_nodes, d_key, node_start_id);
-        thrust::inclusive_scan_by_key(thrust::system::cuda::par, d_key, d_key + DataSize, d_buffer, d_buffer); // find G
-        get_gain<<<block_size, thread_size>>>(d_nodes, d_buffer, node_start_id);
+        grid_size = dim3(num_node_cur_level);
+        block_size = dim3(NUM_THREAD);
+        printf("set_key_buffer_for_prediction_value\n");
+        set_key_buffer_for_prediction_value<<<grid_size, block_size>>>(d_nodes, d_buffer, node_start_id, d_data, num_node_cur_level, d_key, d_label);
+        cudaDeviceSynchronize();
+        cuda_check_error();
+        printf("thrust::reduce_by_key\n");
+        auto new_end = thrust::reduce_by_key(thrust::device, d_key, d_key + InputNum, d_buffer, d_key, d_buffer);
+        cudaDeviceSynchronize();
+        cuda_check_error();
+        // auto new_end = thrust::reduce_by_key(thrust::device, d_key, d_key + 1, d_buffer, d_key, d_buffer);
+        grid_size = dim3((num_node_cur_level + block_size.x - 1) / block_size.x);
+        printf("set_prediction_value grid_size %d block_size %d\n", grid_size.x, block_size.x);
+        set_prediction_value<<<grid_size, block_size>>>(d_nodes, d_buffer, node_start_id, num_node_cur_level);
+        cudaDeviceSynchronize();
+        cuda_check_error();
+        grid_size = dim3(num_node_cur_level);
+        printf("get_gradient\n");
+        get_gradient<<<grid_size, block_size>>>(d_nodes, d_data, d_label, d_buffer, node_start_id);
+        cudaDeviceSynchronize();
+        cuda_check_error();
+        // printf("set_key_segmen\n");
+        set_key_segment<<<grid_size, block_size>>>(d_nodes, d_key, node_start_id);
+        cudaDeviceSynchronize();
+        cuda_check_error();
+        thrust::inclusive_scan_by_key(thrust::device, d_key, d_key + DataSize, d_buffer, d_buffer); // find G
+        cudaDeviceSynchronize();
+        cuda_check_error();
+        get_gain<<<grid_size, block_size>>>(d_nodes, d_buffer, node_start_id);
+        cudaDeviceSynchronize();
+        cuda_check_error();
+        // printf("get_gain\n");
         // it is inclusive so for split point at index i, data i belong to the left child
         num_cache_entry_per_block = DynamicMemorySize / (sizeof(VTYPE) + sizeof(int)) / (num_node_cur_level);
-        thread_size.x = min(num_cache_entry_per_block, NUM_THREAD);
-        dynamic_memory_size = thread_size.x * (sizeof(VTYPE) + sizeof(int));
-        get_best_split_point<<<block_size, thread_size, dynamic_memory_size>>>(d_nodes, d_buffer, node_start_id, d_data);
-        num_cache_entry_per_block = DynamicMemorySize / sizeof(int) / (num_node_cur_level) / 2;
-        thread_size.x = min(num_cache_entry_per_block, NUM_THREAD);        
-        int *d_counter;
-        cudaMalloc((void **)(&d_counter), sizeof(int) * thread_size.x * (num_node_cur_level) * 2);
-        set_counter<<<block_size, thread_size>>>(d_nodes, d_buffer, d_counter, d_key, node_start_id, d_split_direction, d_data);
-        thrust::exclusive_scan_by_key(thrust::system::cuda::par, d_key, d_key + (thread_size.x * 2), d_counter, d_counter); // find G
-        split_node<<<block_size, thread_size>>>(d_nodes, d_counter, node_start_id, d_split_direction, d_data, d_lock, d_num_node_next_level, d_new_data, num_node_cur_level);
-        cudaFree(d_counter);
+        block_size = dim3(min(num_cache_entry_per_block, NUM_THREAD));
+        dynamic_memory_size = block_size.x * (sizeof(VTYPE) + sizeof(int));
+        // printf("get_best_split_point\n");
+        get_best_split_point<<<grid_size, block_size, dynamic_memory_size>>>(d_nodes, d_buffer, node_start_id, d_data);
         cudaDeviceSynchronize();
+        cuda_check_error();
+        num_cache_entry_per_block = DynamicMemorySize / sizeof(int) / (num_node_cur_level) / 2;
+        block_size = dim3(min(num_cache_entry_per_block, NUM_THREAD));
+        cudaDeviceSynchronize();
+        cuda_check_error();
+        int *d_counter;
+        // checkCudaErrors(cudaMalloc((void **)(&d_counter), sizeof(int) * block_size.x * (num_node_cur_level) * 2));
+        cudaMalloc((void **)(&d_counter), sizeof(int) * block_size.x * (num_node_cur_level) * 2);
+        // printf("set_counter\n");
+        set_counter<<<grid_size, block_size>>>(d_nodes, d_buffer, d_counter, d_key, node_start_id, d_split_direction, d_data);
+        cudaDeviceSynchronize();
+        cuda_check_error();
+        thrust::exclusive_scan_by_key(thrust::device, d_key, d_key + (block_size.x * 2), d_counter, d_counter); // find G
+        cudaDeviceSynchronize();
+        cuda_check_error();
+        // printf("split_node\n");
+        split_node<<<grid_size, block_size>>>(d_nodes, d_counter, node_start_id, d_split_direction, d_data, d_lock, d_num_node_next_level, d_new_data, num_node_cur_level);
+        cudaDeviceSynchronize();
+        cuda_check_error();
+        cudaMemcpy(d_new_data, d_data, sizeof(attribute_id_pair) * DataSize, cudaMemcpyDeviceToDevice);
+        // printf("cudaFree\n");
+        cudaFree(d_counter);
+        // printf("cudaDeviceSynchronize\n");
+        cudaDeviceSynchronize();
+        cuda_check_error();
         // cudaMemcpy(data, d_data, sizeof(attribute_id_pair)* DataSize, cudaMemcpyDeviceToHost);
         // cudaMemcpy(nodes, d_nodes, sizeof(node)* MaxNodeNum, cudaMemcpyDeviceToHost);
+        // printf("cudaMemcpy\n");
+        // checkCudaErrors(cudaMemcpy(&num_node_cur_level, d_num_node_next_level, sizeof(int), cudaMemcpyDeviceToHost));
         cudaMemcpy(&num_node_cur_level, d_num_node_next_level, sizeof(int), cudaMemcpyDeviceToHost);
         // cudaMemcpy(&total_num_nodes, node_start_id, sizeof(int), cudaMemcpyDeviceToHost);
+        // printf("node_start_id += num_node_cur_level\n");
         node_start_id += num_node_cur_level;
         level++;
     }
 
-    block_size.x = num_node_cur_level;
-    thread_size.x = NUM_THREAD;
-    set_key_buffer_for_prediction_value<<<block_size, thread_size>>>(d_nodes, d_buffer, node_start_id, d_data, num_node_cur_level, d_key, d_label);
-    auto new_end = thrust::reduce_by_key(d_key, d_key + InputNum, d_buffer, d_key, d_buffer);
-    block_size.x = (num_node_cur_level + thread_size.x - 1) / thread_size.x;
-    set_prediction_value<<<block_size, thread_size>>>(d_nodes, d_buffer, node_start_id, num_node_cur_level);
+    grid_size.x = num_node_cur_level;
+    block_size.x = NUM_THREAD;
+    set_key_buffer_for_prediction_value<<<grid_size, block_size>>>(d_nodes, d_buffer, node_start_id, d_data, num_node_cur_level, d_key, d_label);
+    auto new_end = thrust::reduce_by_key(thrust::device, d_key, d_key + InputNum, d_buffer, d_key, d_buffer);
+    grid_size.x = (num_node_cur_level + block_size.x - 1) / block_size.x;
+    set_prediction_value<<<grid_size, block_size>>>(d_nodes, d_buffer, node_start_id, num_node_cur_level);
     cudaMemcpy(nodes, d_nodes, sizeof(node)* MaxNodeNum, cudaMemcpyDeviceToHost);
     cudaDeviceSynchronize();
+    cuda_check_error();
     // begin_roi();
-    // classifier_GPU<<<grid_size, block_size>>>(d_data);
+    // classifier_GPU<<<grid_size, grid_size>>>(d_data);
     // cudaDeviceSynchronize();
     // end_roi();
 
@@ -736,6 +848,7 @@ for (int i = 0; i < MaxNodeNum; i++) {
     std::cout << "Node " << i << ":" << std::endl;
     std::cout << "predicted_value: " << nodes[i].predicted_value << std::endl;
     std::cout << "num_instances: " << nodes[i].num_instances << std::endl;
+    std::cout << "left_child_id: " << nodes[i].left_child_id << std::endl;
     std::cout << "right_child_id: " << nodes[i].right_child_id << std::endl;
     std::cout << "start_index: " << nodes[i].start_index << std::endl;
     std::cout << "feature_id: " << nodes[i].feature_id << std::endl;
