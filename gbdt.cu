@@ -16,6 +16,9 @@
 #include <thrust/sequence.h>
 #include <thrust/functional.h>
 #include <functional>
+#include <algorithm>
+#include <random>
+#include <array>
 // #include <helper_cuda.h>
 
 
@@ -55,6 +58,8 @@ using namespace std;
 # define MB (1 << 20)
 # define GB (1 << 30)
 # define DynamicMemorySize (1 * GB)
+# define ATTRIBUTE_VALUE_LOWER_BOUND -1000000
+# define ATTRIBUTE_VALUE_UPPER_BOUND 1000000
 
 
 class node
@@ -69,23 +74,6 @@ public:
     int feature_id; // the feature we use to split the node
     int split_index;  // the feature we use to split the node
     VTYPE feature_threshold; // the threshold of the feature value; if it is larger than threshold, it goes to the right child, otherwise the left child
-
-    // __host__ __device__ node()
-    // {
-    //     predicted_value = -1;
-    //     node_id = -1;
-    //     num_instances = -1; // number of instances
-    //     level = -1;
-    //     split_index = -1;
-    //     left_child_id = -1;
-    //     right_child_id = -1;
-    //     training_loss = 0.0;
-    //     is_leaf = false;
-    //     start_index = 0;
-    //     feature_id = -1;
-    //     feature_threshold = 0.0;
-    //     index_in_segment = -1;
-    // }
 };
 
 
@@ -100,25 +88,14 @@ public:
 };
 
 
-
-
-// read the input file (e.g. ./benchmarks/CASP) return global memory array
-// sort the input with attribute values and return
-// create y values
-// void read_input(string input_path, vector<attribute_id_pair>& data) {
-
-
-
-
-// }
 void read_input(attribute_id_pair* data, VTYPE* label) {
-// void read_input(string input_path, std::vector<attribute_id_pair>& data, std::vector<VTYPE>& label) {
+// void read_input(string input_path, vector<attribute_id_pair>& data, vector<VTYPE>& label) {
 /*
 // include libxl.h for this run//
     Book* book = xlCreateBook();
 //  Book*  book = xlCreateBook();
     if (!book) {
-        std::cout << "Error creating book." << std::endl;
+        cout << "Error creating book." << endl;
         return;
     }
 
@@ -149,7 +126,7 @@ void read_input(attribute_id_pair* data, VTYPE* label) {
     }
 
     else {
-        std::cout << "Error loading the workbook." << std::endl;
+        cout << "Error loading the workbook." << endl;
     }
 
     book->release();
@@ -233,60 +210,53 @@ void read_input(attribute_id_pair* data, VTYPE* label) {
 inline void cuda_check_error() {
     auto err = cudaGetLastError();
     if(err) {
-      std::cerr << "Error: " << cudaGetErrorString(err) << std::endl;
+      cerr << "Error: " << cudaGetErrorString(err) << endl;
       exit(0);
     }
   }
 
+VTYPE generateRandomNumber(VTYPE lower_bound, VTYPE upper_bound) {
+    // Create a random number generator engine
+    random_device rd;
+    mt19937 gen(rd());
 
+    // Create a uniform distribution within the specified range
+    uniform_real_distribution<VTYPE> distribution(lower_bound, upper_bound);
+
+    // Generate a random floating-point number
+    VTYPE random_number = distribution(gen);
+
+    return random_number;
+}
 
 
 void fill_data(attribute_id_pair* data) {
-   for (int i = 0; i < DataSize; i++) {
-       attribute_id_pair pair;
-       pair.attribute_value = static_cast<VTYPE>(rand() % 101) / 100.0; // Generate a random float between 0 and 1
-       pair.instance_id = rand() % 101; // Generate a random integer between 0 and 100
-       data[i] = pair;
-   }
+    for (int index = 0; index < DataSize; index++) {
+        attribute_id_pair pair;
+        pair.attribute_value = generateRandomNumber(ATTRIBUTE_VALUE_LOWER_BOUND, ATTRIBUTE_VALUE_UPPER_BOUND); // Generate a random float between 0 and 1
+        pair.instance_id = index % InputNum; // Generate a random integer between 0 and 100
+        data[index] = pair;
+    }
+}
+bool compareByAttributeValue(const attribute_id_pair& pair1, const attribute_id_pair& pair2) {
+    return pair1.attribute_value < pair2.attribute_value;
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+// Function to sort the array
+void sortArrayByAttributeValue(attribute_id_pair* data) {
+    for (int i = 0; i < DataSize; i+=InputNum) {
+        std::sort(data + i, data + (i + InputNum), compareByAttributeValue);
+    }
+}
 
 void fill_label(VTYPE* label){
- int i;
- for (i = 0; i < DataSize; i++){
-   label[i] = i;
- }
+    for (int i = 0; i < InputNum; i++){
+        label[i] = generateRandomNumber(ATTRIBUTE_VALUE_LOWER_BOUND, ATTRIBUTE_VALUE_UPPER_BOUND);
+    }
 }
-
-
-
-
-
-
 
 
 static uint64_t usec;
-
-
-
-
-
-
-
 
 static __inline__ uint64_t gettime(void) {
  struct timeval tv;
@@ -306,7 +276,7 @@ __attribute__ ((noinline))  void begin_roi() {
 }
 __attribute__ ((noinline))  void end_roi()   {
  usec=(gettime()-usec);
- std::cout << "elapsed (sec): " << usec/1000000.0 << "\n";
+ cout << "elapsed (sec): " << usec/1000000.0 << "\n";
 }
 
 __global__ void get_gradient(node* d_nodes, attribute_id_pair* d_data, VTYPE* d_label, VTYPE* d_buffer, int node_start_id) {
@@ -823,10 +793,23 @@ int main(void) {
     
     attribute_id_pair data[DataSize];
     VTYPE label [InputNum];
-    read_input(data, label);
+    // read_input(data, label);
+    fill_data(data);
+    fill_label(label);
+    sortArrayByAttributeValue(data);
+
+    // // debug
+
+    // for (int i = 0; i < DataSize; i++) {
+    //     printf("attribute %f, instance %d i %d\n", data[i].attribute_value, data[i].instance_id, i);
+    // }
+    // for (int i = 0; i < InputNum; i++) {
+    //     printf("label[%d] %f\n", i, label[i]);
+    // }
+
+    // // end of debug
     cout << "starting program\n";
-    // fill_data(data);
-    // fill_label(label);
+    
 
 
     attribute_id_pair *d_data;
@@ -1043,16 +1026,16 @@ int main(void) {
     printf("program done\n");
 
 for (int i = 0; i < node_start_id; i++) {
-    std::cout << "Node " << i << ":" << std::endl;
-    std::cout << "predicted_value: " << nodes[i].predicted_value << std::endl;
-    std::cout << "num_instances: " << nodes[i].num_instances << std::endl;
-    std::cout << "left_child_id: " << nodes[i].left_child_id << std::endl;
-    std::cout << "right_child_id: " << nodes[i].right_child_id << std::endl;
-    std::cout << "start_index: " << nodes[i].start_index << std::endl;
-    std::cout << "feature_id: " << nodes[i].feature_id << std::endl;
-    std::cout << "feature_threshold: " << nodes[i].feature_threshold << std::endl;
-    std::cout << "split_index: " << nodes[i].split_index << std::endl;
-    std::cout << "-------------------------" << std::endl;
+    cout << "Node " << i << ":" << endl;
+    cout << "predicted_value: " << nodes[i].predicted_value << endl;
+    cout << "num_instances: " << nodes[i].num_instances << endl;
+    cout << "left_child_id: " << nodes[i].left_child_id << endl;
+    cout << "right_child_id: " << nodes[i].right_child_id << endl;
+    cout << "start_index: " << nodes[i].start_index << endl;
+    cout << "feature_id: " << nodes[i].feature_id << endl;
+    cout << "feature_threshold: " << nodes[i].feature_threshold << endl;
+    cout << "split_index: " << nodes[i].split_index << endl;
+    cout << "-------------------------" << endl;
 }
     cudaFree(d_data);
     cudaFree(d_new_data);
