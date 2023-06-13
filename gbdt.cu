@@ -541,7 +541,8 @@ __global__ void set_counter(node* d_nodes, VTYPE* d_buffer, int* d_counter, int 
     int start_index_of_this_thread = start_index + (thread_idx * num_instances_per_thread);
     int feature_id = cur_node.feature_id;
     int split_start_index = start_index + (feature_id * num_instances);
-    int end_index = start_index_of_this_thread + num_instances_per_thread;
+    // int end_index = start_index_of_this_thread + num_instances_per_thread;
+    int end_index = min(start_index_of_this_thread + num_instances_per_thread, start_index + node_size);
     int instance_id;
     int left_instance_id;
     bool go_left = false;
@@ -618,6 +619,10 @@ __global__ void creat_child_nodes(node* d_nodes, int node_start_id, int* d_lock,
         cur_node.left_child_id = left_child_id;
         cur_node.right_child_id = right_child_id;
         d_nodes[node_id] = cur_node;
+        // if (node_id == 0) {
+        //     printf("d_nodes[0].left_child_id %d, d_nodes[0].right_child_id %d, left_child_id %d, right_child_id %d\n", 
+        //     d_nodes[0].left_child_id,d_nodes[0].right_child_id,left_child_id,right_child_id);
+        // }
 
         node left_child;
         int left_child_num_instance = ((split_index - start_index) % num_instances) + 1;
@@ -684,14 +689,18 @@ __global__ void split_node(node* d_nodes, int* d_counter, int node_start_id, boo
     int start_index_of_this_thread = start_index + (thread_idx * num_instances_per_thread);
     // int feature_id = d_nodes[node_id].feature_id;
     // int split_start_index = start_index + (feature_id * num_instances);
-    int end_index = start_index_of_this_thread + num_instances_per_thread;
+    int end_index = min(start_index_of_this_thread + num_instances_per_thread, start_index + node_size);
     // int instance_id;
     // int left_instance_id;
     bool direction;
     int new_index;
     attribute_id_pair cur_data;
-    // printf("start_index_of_this_thread %d, end_index %d thread_idx %d\n", start_index_of_this_thread, end_index,thread_idx);
+    // if (end_index > DataSize) {
+    //     printf("start_index_of_this_thread %d, end_index %d thread_idx %d start_index %d num_instances_per_thread %d node_id %d node_start_id %d blockIdx.x %d cur_node.split_index %d\n", 
+    //     start_index_of_this_thread, end_index,thread_idx,cur_node.start_index,num_instances_per_thread,node_id,node_start_id, blockIdx.x,cur_node.split_index);
+    // }
     for (int index = start_index_of_this_thread; index < end_index; index++) {
+        //printf("d_split_direction[%d] thread_idx %d\n", index,thread_idx);
         direction = d_split_direction[index];
         if (direction == Left) {
             new_index = start_index + local_counter[0];
@@ -700,10 +709,11 @@ __global__ void split_node(node* d_nodes, int* d_counter, int node_start_id, boo
             new_index = start_index + local_counter[1];
             local_counter[1] ++;
         }
+        //printf("d_data[%d] thread_idx %d\n", index,thread_idx);
         cur_data = d_data[index];
+        // printf("d_new_data[%d] thread_idx %d\n", new_index,thread_idx);
         d_new_data[new_index] = cur_data;
-        // printf("");
-        // printf("new_index %d\n", new_index);
+        printf("");
         // // debug
         // printf("index %d, direction %d, start_index %d, new_index %d, thread_idx %d\n", index, direction, start_index, new_index, thread_idx);
         // if (cur_data.instance_id == 3) {
@@ -905,7 +915,7 @@ int main(void) {
         cuda_check_error();
         // auto new_end = thrust::reduce_by_key(thrust::device, d_key, d_key + 1, d_buffer, d_key, d_buffer);
         grid_size = dim3((num_node_cur_level + block_size.x - 1) / block_size.x);
-        // printf("set_prediction_value grid_size %d block_size %d\n", grid_size.x, block_size.x);
+        printf("set_prediction_value grid_size %d block_size %d\n", grid_size.x, block_size.x);
         set_prediction_value<<<grid_size, block_size>>>(d_nodes, d_buffer, node_start_id, num_node_cur_level);
         cudaDeviceSynchronize();
         cuda_check_error();
@@ -929,14 +939,14 @@ int main(void) {
         num_cache_entry_per_block = DynamicMemorySize / (sizeof(VTYPE) + sizeof(int)) / (num_node_cur_level);
         block_size = dim3(min(num_cache_entry_per_block, NUM_THREAD));
         dynamic_memory_size = block_size.x * (sizeof(VTYPE) + sizeof(int));
-        // printf("dynamic_memory_size %d\n", dynamic_memory_size);
+        printf("dynamic_memory_size %d\n", dynamic_memory_size);
         printf("get_best_split_point\n");
         get_best_split_point<<<grid_size, block_size, dynamic_memory_size>>>(d_nodes, d_buffer, node_start_id, d_data);
         cudaDeviceSynchronize();
         cuda_check_error();
         num_cache_entry_per_block = DynamicMemorySize / sizeof(int) / (num_node_cur_level) / 2;
         block_size = dim3(min(num_cache_entry_per_block, NUM_THREAD));
-        printf("block size %d num_cache_entry_per_block %d NUM_THREAD %d\n", block_size.x, num_cache_entry_per_block, NUM_THREAD);
+        // printf("block size %d num_cache_entry_per_block %d NUM_THREAD %d\n", block_size.x, num_cache_entry_per_block, NUM_THREAD);
         int *d_counter;
         // checkCudaErrors(cudaMalloc((void **)(&d_counter), sizeof(int) * block_size.x * (num_node_cur_level) * 2));
         cudaMalloc((void **)(&d_counter), sizeof(int) * block_size.x * (num_node_cur_level) * 2);
@@ -965,6 +975,7 @@ int main(void) {
         split_node<<<grid_size, block_size>>>(d_nodes, d_counter, node_start_id, d_split_direction, d_data, d_new_data);
         cudaDeviceSynchronize();
         cuda_check_error();
+        printf("done split_node\n");
         
         // // debug
         // printf("before copy\n");
@@ -982,17 +993,20 @@ int main(void) {
         cudaMemcpy(d_data, d_new_data, sizeof(attribute_id_pair) * DataSize, cudaMemcpyDeviceToDevice);
         cudaDeviceSynchronize();
         cuda_check_error();
-        // printf("cudaFree\n");
+       // printf("cudaFree d_counter\n");
         cudaFree(d_counter);
         // printf("cudaDeviceSynchronize\n");
         cudaDeviceSynchronize();
         cuda_check_error();
         // debug
-        // printf("after copy\n");
-        // cudaMemcpy(data, d_data, sizeof(attribute_id_pair)* DataSize, cudaMemcpyDeviceToHost);
-        // for (int i = 0; i < DataSize; i ++) {
-        //     printf("data[%d].instance_id %d, data[%d].attribute_value %f\n", i, data[i].instance_id, i, data[i].attribute_value);
-        // }
+        printf("after copy\n");
+        cudaMemcpy(data, d_data, sizeof(attribute_id_pair)* DataSize, cudaMemcpyDeviceToHost);
+        for (int i = 0; i < DataSize; i ++) {
+            printf("data[%d].instance_id %d, data[%d].attribute_value %f\n", i, data[i].instance_id, i, data[i].attribute_value);
+        }
+        // printf("data[%d].instance_id %d, data[%d].attribute_value %f\n", (DataSize - 1), data[(DataSize - 1)].instance_id, (DataSize - 1), data[(DataSize - 1)].attribute_value);
+        // cudaDeviceSynchronize();
+        // cuda_check_error();
         // end debug
         // cudaMemcpy(nodes, d_nodes, sizeof(node)* MaxNodeNum, cudaMemcpyDeviceToHost);
         // printf("cudaMemcpy\n");
