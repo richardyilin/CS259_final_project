@@ -39,10 +39,13 @@ using namespace std;
 
 //Define the parameters if not defined externally
 #ifndef cmd_def
+// #define InputNum 4  // Number of input data points (instances)
+// #define NUM_FEATURE 4  // Number of features in an instance
+// # define MinimumSplitNumInstances 1
 #define InputNum 45730  // Number of input data points (instances)
 #define NUM_FEATURE 9  // Number of features in an instance
+# define MinimumSplitNumInstances 1
 #define MaxDepth 10  // Number of features in an instance
-# define MinimumSplitNumInstances 3
 # define MaxNodeNum (static_cast<int>(pow(2, MaxDepth)) - 1) // maximal number of nodes, can change to any positive integer
 #endif
 #define VTYPE float
@@ -475,7 +478,7 @@ __global__ void get_best_split_point(node* d_nodes, VTYPE* d_buffer, int node_st
     }
 
     if (thread_idx == 0) {
-        if (max_value > Gamma) {
+        if (max_value > Gamma && max_index != -1) {
             d_nodes[node_id].split_index = max_index;
             int feature_id = (max_index - start_index) / num_instances;
             d_nodes[node_id].feature_id = feature_id;
@@ -528,7 +531,7 @@ __global__ void set_counter(node* d_nodes, VTYPE* d_buffer, int* d_counter, int 
     // reset key and counter
     for (int index = left_counter_index; index <= right_counter_index; index += num_thread_per_block) { // can move into if
         d_key[index] = node_id;
-        d_counter[index] = 0; // may not need this
+        // d_counter[index] = 0; // may not need this
         //printf("index %d global_counter_start_index %d start_index %d left_counter_index %d right_counter_index %d\n", index, global_counter_start_index,start_index,left_counter_index,right_counter_index);
     }
     
@@ -607,9 +610,8 @@ __global__ void creat_child_nodes(node* d_nodes, int node_start_id, int* d_lock,
     }
     if (right_child_id < MaxNodeNum) {
         int left_child_id = right_child_id - 1;
-        cur_node.left_child_id = left_child_id;
-        cur_node.right_child_id = right_child_id;
-        d_nodes[node_id] = cur_node;
+        d_nodes[node_id].left_child_id = left_child_id;
+        d_nodes[node_id].right_child_id = right_child_id;
         // if (node_id == 0) {
         //     printf("d_nodes[0].left_child_id %d, d_nodes[0].right_child_id %d, left_child_id %d, right_child_id %d\n", 
         //     d_nodes[0].left_child_id,d_nodes[0].right_child_id,left_child_id,right_child_id);
@@ -779,8 +781,8 @@ __global__ void set_prediction_value(node* d_nodes, VTYPE* d_buffer, int node_st
     node cur_node = d_nodes[node_id];
     int num_instances = cur_node.num_instances;
     VTYPE predicted_value = d_buffer[global_thread_idx] / num_instances;
-    cur_node.predicted_value = predicted_value;
-    d_nodes[node_id] = cur_node;
+    // cur_node.predicted_value = predicted_value;
+    d_nodes[node_id].predicted_value = predicted_value;
 }
 int main(void) {
     node nodes[MaxNodeNum];
@@ -982,7 +984,7 @@ int main(void) {
         // printf("cudaDeviceSynchronize\n");
         cudaDeviceSynchronize();
         cuda_check_error();
-        // debug
+        // // debug
         // printf("after copy\n");
         // cudaMemcpy(data, d_data, sizeof(attribute_id_pair)* DataSize, cudaMemcpyDeviceToHost);
         // for (int i = 0; i < DataSize; i ++) {
