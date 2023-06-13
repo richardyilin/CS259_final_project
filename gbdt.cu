@@ -447,7 +447,7 @@ __global__ void get_best_split_point(node* d_nodes, VTYPE* d_buffer, int node_st
 
     int last_num_active_thread = num_thread_per_block;
     int num_active_thread = (last_num_active_thread + 1) / 2;
-    int compared_thread_idx, compared_index;
+    int compared_thread_idx;
     while (last_num_active_thread > 1) {
         if (thread_idx >= num_active_thread && thread_idx < last_num_active_thread) {
             // printf("1 thread_idx %d\n",thread_idx);
@@ -463,7 +463,6 @@ __global__ void get_best_split_point(node* d_nodes, VTYPE* d_buffer, int node_st
         __syncthreads();
         
         compared_thread_idx = thread_idx + num_active_thread;
-        compared_index = cur_node.start_index + compared_thread_idx;
         if (thread_idx < num_active_thread && compared_thread_idx < last_num_active_thread) {
             compared_value = max_values[compared_thread_idx];
             if (compared_value > max_value) {
