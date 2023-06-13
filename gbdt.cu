@@ -86,7 +86,10 @@ public:
    VTYPE attribute_value;
    int instance_id;
 };
-
+// struct max_values_indices_pair{
+//     VTYPE* max_values;
+//     int* max_indices;
+// };
 
 void read_input(attribute_id_pair* data, VTYPE* label) {
 // void read_input(string input_path, vector<attribute_id_pair>& data, vector<VTYPE>& label) {
@@ -440,28 +443,32 @@ __global__ void get_best_split_point(node* d_nodes, VTYPE* d_buffer, int node_st
     }
     extern __shared__ VTYPE shared_mem[];
     VTYPE* max_values = reinterpret_cast<VTYPE*>(shared_mem);
-    int* max_indices = reinterpret_cast<int*>(shared_mem + num_thread_per_block * sizeof(VTYPE));
+    int* max_indices = reinterpret_cast<int*>(shared_mem + num_thread_per_block);
 
     int last_num_active_thread = num_thread_per_block;
     int num_active_thread = (last_num_active_thread + 1) / 2;
     int compared_thread_idx, compared_index;
     while (last_num_active_thread > 1) {
         if (thread_idx >= num_active_thread && thread_idx < last_num_active_thread) {
+            // printf("1 thread_idx %d\n",thread_idx);
             max_values[thread_idx] = max_value;
+            // printf("2 thread_idx %d\n",thread_idx);
             max_indices[thread_idx] = max_index;
+            // printf("3 thread_idx %d\n",thread_idx);
             // if (thread_idx == 5){
             //     printf("max_value %f, max_index %d thread_idx %d max_values[%d] %f max_indices[%d] %f\n", 
             //     max_value, max_index, thread_idx, thread_idx, max_values[thread_idx], thread_idx, max_indices[thread_idx]);
             // }
         }
         __syncthreads();
+        
         compared_thread_idx = thread_idx + num_active_thread;
         compared_index = cur_node.start_index + compared_thread_idx;
         if (thread_idx < num_active_thread && compared_thread_idx < last_num_active_thread) {
-            compared_value = max_values[compared_index];
+            compared_value = max_values[compared_thread_idx];
             if (compared_value > max_value) {
                 max_value = compared_value;
-                max_index = max_indices[compared_index];
+                max_index = max_indices[compared_thread_idx];
             }
         }
         last_num_active_thread = num_active_thread;
@@ -793,10 +800,10 @@ int main(void) {
     
     attribute_id_pair data[DataSize];
     VTYPE label [InputNum];
-    // read_input(data, label);
-    fill_data(data);
-    fill_label(label);
-    sortArrayByAttributeValue(data);
+    read_input(data, label);
+    // fill_data(data);
+    // fill_label(label);
+    // sortArrayByAttributeValue(data);
 
     // // debug
 
@@ -882,17 +889,17 @@ int main(void) {
     int num_cache_entry_per_block;
     int dynamic_memory_size;
     while (level < MaxDepth - 1 && (num_node_cur_level > 0)) {
-        // printf("level %d\n", level);
+        printf("level %d\n", level);
         // checkCudaErrors(cudaMemset(d_num_node_next_level, 0, sizeof(int)));
         cudaMemset(d_num_node_next_level, 0, sizeof(int));
         // cudaMemcpy(d_total_num_nodes, &total_num_nodes, sizeof(int), cudaMemcpyHostToDevice);
         grid_size = dim3(num_node_cur_level);
         block_size = dim3(NUM_THREAD);
-        // printf("set_key_buffer_for_prediction_value\n");
+        printf("set_key_buffer_for_prediction_value\n");
         set_key_buffer_for_prediction_value<<<grid_size, block_size>>>(d_nodes, d_buffer, node_start_id, d_data, num_node_cur_level, d_key, d_label);
         cudaDeviceSynchronize();
         cuda_check_error();
-        // printf("thrust::reduce_by_key\n");
+        printf("thrust::reduce_by_key\n");
         auto new_end = thrust::reduce_by_key(thrust::device, d_key, d_key + InputNum, d_buffer, d_key, d_buffer);
         cudaDeviceSynchronize();
         cuda_check_error();
@@ -903,18 +910,18 @@ int main(void) {
         cudaDeviceSynchronize();
         cuda_check_error();
         grid_size = dim3(num_node_cur_level);
-        // printf("get_gradient\n");
+        printf("get_gradient\n");
         get_gradient<<<grid_size, block_size>>>(d_nodes, d_data, d_label, d_buffer, node_start_id);
         cudaDeviceSynchronize();
         cuda_check_error();
-        // printf("set_key_segmen\n");
+        printf("set_key_segmen\n");
         set_key_segment<<<grid_size, block_size>>>(d_nodes, d_key, node_start_id);
         cudaDeviceSynchronize();
         cuda_check_error();
         thrust::inclusive_scan_by_key(thrust::device, d_key, d_key + DataSize, d_buffer, d_buffer); // find G
         cudaDeviceSynchronize();
         cuda_check_error();
-        // printf("get_gain\n");
+        printf("get_gain\n");
         get_gain<<<grid_size, block_size>>>(d_nodes, d_buffer, node_start_id);
         cudaDeviceSynchronize();
         cuda_check_error();
@@ -923,13 +930,13 @@ int main(void) {
         block_size = dim3(min(num_cache_entry_per_block, NUM_THREAD));
         dynamic_memory_size = block_size.x * (sizeof(VTYPE) + sizeof(int));
         // printf("dynamic_memory_size %d\n", dynamic_memory_size);
-        // printf("get_best_split_point\n");
+        printf("get_best_split_point\n");
         get_best_split_point<<<grid_size, block_size, dynamic_memory_size>>>(d_nodes, d_buffer, node_start_id, d_data);
         cudaDeviceSynchronize();
         cuda_check_error();
         num_cache_entry_per_block = DynamicMemorySize / sizeof(int) / (num_node_cur_level) / 2;
         block_size = dim3(min(num_cache_entry_per_block, NUM_THREAD));
-        // printf("block size %d num_cache_entry_per_block %d NUM_THREAD %d\n", block_size.x, num_cache_entry_per_block, NUM_THREAD);
+        printf("block size %d num_cache_entry_per_block %d NUM_THREAD %d\n", block_size.x, num_cache_entry_per_block, NUM_THREAD);
         int *d_counter;
         // checkCudaErrors(cudaMalloc((void **)(&d_counter), sizeof(int) * block_size.x * (num_node_cur_level) * 2));
         cudaMalloc((void **)(&d_counter), sizeof(int) * block_size.x * (num_node_cur_level) * 2);
@@ -943,18 +950,18 @@ int main(void) {
         cudaMemset(d_key, -1, sizeof(int) * DataSize);
         cudaDeviceSynchronize();
         cuda_check_error();
-        // printf("set_counter\n");
+        printf("set_counter\n");
         set_counter<<<grid_size, block_size>>>(d_nodes, d_buffer, d_counter, d_key, node_start_id, d_split_direction, d_data);
         cudaDeviceSynchronize();
         cuda_check_error();
         thrust::exclusive_scan_by_key(thrust::device, d_key, d_key + (block_size.x * 2), d_counter, d_counter); // find G
         cudaDeviceSynchronize();
         cuda_check_error();
-        // printf("creat_child_nodes\n");
+        printf("creat_child_nodes\n");
         creat_child_nodes<<<grid_size, 1>>>(d_nodes, node_start_id, d_lock, d_num_node_next_level, num_node_cur_level);
         cudaDeviceSynchronize();
         cuda_check_error();
-        // printf("split_node\n");
+        printf("split_node\n");
         split_node<<<grid_size, block_size>>>(d_nodes, d_counter, node_start_id, d_split_direction, d_data, d_new_data);
         cudaDeviceSynchronize();
         cuda_check_error();
