@@ -39,8 +39,8 @@ using namespace std;
 
 //Define the parameters if not defined externally
 #ifndef cmd_def
-#define InputNum 4  // Number of input data points (instances)
-#define NUM_FEATURE 4  // Number of features in an instance
+#define InputNum 45730  // Number of input data points (instances)
+#define NUM_FEATURE 9  // Number of features in an instance
 #define MaxDepth 10  // Number of features in an instance
 # define MinimumSplitNumInstances 1
 # define MaxNodeNum (static_cast<int>(pow(2, MaxDepth)) - 1)
@@ -582,39 +582,31 @@ __global__ void set_counter(node* d_nodes, VTYPE* d_buffer, int* d_counter, int 
 }
 __global__ void creat_child_nodes(node* d_nodes, int node_start_id, int* d_lock, int* d_num_node_next_level, int num_node_cur_level) {
     int node_id = blockIdx.x + (node_start_id);
-    int thread_idx = threadIdx.x;
-    __shared__ node cur_node;
-    if (thread_idx == 0) {
-        cur_node = d_nodes[node_id];
-    }
-    __syncthreads();
+    node cur_node = d_nodes[node_id];
     int split_index = cur_node.split_index;
+    int start_index = cur_node.start_index;
+    int num_instances = cur_node.num_instances;
     if (split_index == -1) {
         return;
     }
-    int start_index = cur_node.start_index;
-    int num_instances = cur_node.num_instances;
-    int node_size = num_instances * NUM_FEATURE;
-    if (thread_idx >= node_size) {
-        return;
-    }
     // get child node id
-    __shared__ int num_node_next_level;
-    if (thread_idx == 0) {
-        bool wait_lock = true;
-        while (wait_lock) {
-            if(atomicCAS(d_lock, 0, 1) == 0){
-                num_node_next_level = *d_num_node_next_level;
+    int num_node_next_level;
+    int next_node_start_id = node_start_id + num_node_cur_level;
+    int right_child_id;
+    bool wait_lock = true;
+    while (wait_lock) {
+        if(atomicCAS(d_lock, 0, 1) == 0){
+            num_node_next_level = *d_num_node_next_level;
+            right_child_id = next_node_start_id + num_node_next_level + 1;
+            if (right_child_id < MaxNodeNum) {
                 atomicAdd(d_num_node_next_level, 2);
-                atomicExch(d_lock, 0);
-                wait_lock = false;
             }
+            atomicExch(d_lock, 0);
+            wait_lock = false;
         }
     }
-    if (thread_idx == 0) {
-        int next_node_start_id = node_start_id + num_node_cur_level;
-        int left_child_id = next_node_start_id + num_node_next_level;
-        int right_child_id = left_child_id + 1;
+    if (right_child_id < MaxNodeNum) {
+        int left_child_id = right_child_id - 1;
         cur_node.left_child_id = left_child_id;
         cur_node.right_child_id = right_child_id;
         d_nodes[node_id] = cur_node;
@@ -645,15 +637,8 @@ __global__ void creat_child_nodes(node* d_nodes, int node_start_id, int* d_lock,
         right_child.split_index = -1;
         right_child.feature_threshold = -1;
         d_nodes[right_child_id] = right_child;
-
-        // VTYPE predicted_value;
-        // int num_instances; // number of instances
-        // int left_child_id;
-        // int right_child_id;
-        // int start_index; // start index in data
-        // int feature_id; // the feature we use to split the node
-        // int split_index;  // the feature we use to split the node
-        // VTYPE feature_threshold; // 
+    } else { // exceed max node number so do not split
+        d_nodes[node_id].split_index = -1;
     }
 }
 __global__ void split_node(node* d_nodes, int* d_counter, int node_start_id, bool *d_split_direction, attribute_id_pair* d_data, attribute_id_pair* d_new_data) {
@@ -809,10 +794,10 @@ int main(void) {
     
     attribute_id_pair data[DataSize];
     VTYPE label [InputNum];
-    read_input(data, label);
-    // fill_data(data);
-    // fill_label(label);
-    // sortArrayByAttributeValue(data);
+    // read_input(data, label);
+    fill_data(data);
+    fill_label(label);
+    sortArrayByAttributeValue(data);
 
     // // debug
 
@@ -1000,9 +985,9 @@ int main(void) {
         // debug
         printf("after copy\n");
         cudaMemcpy(data, d_data, sizeof(attribute_id_pair)* DataSize, cudaMemcpyDeviceToHost);
-        for (int i = 0; i < DataSize; i ++) {
-            printf("data[%d].instance_id %d, data[%d].attribute_value %f\n", i, data[i].instance_id, i, data[i].attribute_value);
-        }
+        // for (int i = 0; i < DataSize; i ++) {
+        //     printf("data[%d].instance_id %d, data[%d].attribute_value %f\n", i, data[i].instance_id, i, data[i].attribute_value);
+        // }
         // printf("data[%d].instance_id %d, data[%d].attribute_value %f\n", (DataSize - 1), data[(DataSize - 1)].instance_id, (DataSize - 1), data[(DataSize - 1)].attribute_value);
         // cudaDeviceSynchronize();
         // cuda_check_error();
