@@ -39,12 +39,12 @@ using namespace std;
 
 //Define the parameters if not defined externally
 #ifndef cmd_def
-// #define InputNum 5  // Number of input data points (instances)
+// #define InputNum 4  // Number of input data points (instances)
 // #define NUM_FEATURE 4  // Number of features in an instance
 // # define MinimumSplitNumInstances 1
 #define InputNum 45730  // Number of input data points (instances)
 #define NUM_FEATURE 9  // Number of features in an instance
-# define MinimumSplitNumInstances 3
+# define MinimumSplitNumInstances 1
 #define MaxDepth 10  // Number of features in an instance
 # define MaxNodeNum (static_cast<int>(pow(2, MaxDepth)) - 1) // maximal number of nodes, can change to any positive integer
 #endif
@@ -167,43 +167,6 @@ void read_input(attribute_id_pair* data, VTYPE* label) {
     // for (int i = 0; i < DataSize; i++){
     //     label[i] = i;
     // }
-    // data[0].attribute_value = 0.160000;
-    // data[0].instance_id = 0;
-    // data[1].attribute_value = 1.580000;
-    // data[1].instance_id = 3;
-    // data[2].attribute_value = 2.830000;
-    // data[2].instance_id = 2;
-    // data[3].attribute_value = 3.760000;
-    // data[3].instance_id = 1;
-    // data[4].attribute_value = 0.160000;
-    // data[4].instance_id = 0;
-    // data[5].attribute_value = 1.580000;
-    // data[5].instance_id = 1;
-    // data[6].attribute_value = 2.830000;
-    // data[6].instance_id = 2;
-    // data[7].attribute_value = 3.760000;
-    // data[7].instance_id = 3;
-    // data[8].attribute_value = 0.160000;
-    // data[8].instance_id = 0;
-    // data[9].attribute_value = 1.580000;
-    // data[9].instance_id = 3;
-    // data[10].attribute_value = 2.830000;
-    // data[10].instance_id = 2;
-    // data[11].attribute_value = 3.760000;
-    // data[11].instance_id = 1;
-    // data[12].attribute_value = 0.160000;
-    // data[12].instance_id = 0;
-    // data[13].attribute_value = 1.580000;
-    // data[13].instance_id = 1;
-    // data[14].attribute_value = 2.830000;
-    // data[14].instance_id = 2;
-    // data[15].attribute_value = 3.760000;
-    // data[15].instance_id = 3;
-
-    // label[0] = 0;
-    // label[1] = 1;
-    // label[2] = 2;
-    // label[3] = 3;
     data[0].attribute_value = 0.160000;
     data[0].instance_id = 0;
     data[1].attribute_value = 1.580000;
@@ -212,43 +175,80 @@ void read_input(attribute_id_pair* data, VTYPE* label) {
     data[2].instance_id = 2;
     data[3].attribute_value = 3.760000;
     data[3].instance_id = 1;
-    data[4].attribute_value = 6.760000;
-    data[4].instance_id = 4;
-    data[5].attribute_value = 0.080000;
-    data[5].instance_id = 0;
-    data[6].attribute_value = 1.700000;
-    data[6].instance_id = 1;
-    data[7].attribute_value = 2.000000;
+    data[4].attribute_value = 0.160000;
+    data[4].instance_id = 0;
+    data[5].attribute_value = 1.580000;
+    data[5].instance_id = 1;
+    data[6].attribute_value = 2.830000;
+    data[6].instance_id = 2;
+    data[7].attribute_value = 3.760000;
     data[7].instance_id = 3;
-    data[8].attribute_value = 3.830000;
-    data[8].instance_id = 2;
-    data[9].attribute_value = 7.200000;
-    data[9].instance_id = 4;
-    data[10].attribute_value = 1.920000;
-    data[10].instance_id = 3;
-    data[11].attribute_value = 4.230000;
-    data[11].instance_id = 2;
-    data[12].attribute_value = 9.760000;
-    data[12].instance_id = 1;
-    data[13].attribute_value = 10.300000;
-    data[13].instance_id = 0;
-    data[14].attribute_value = 12.300000;
-    data[14].instance_id = 4;
-    data[15].attribute_value = 3.400000;
-    data[15].instance_id = 1;
-    data[16].attribute_value = 9.900000;
-    data[16].instance_id = 2;
-    data[17].attribute_value = 12.300000;
-    data[17].instance_id = 3;
-    data[18].attribute_value = 14.300000;
-    data[18].instance_id = 4;
-    data[19].attribute_value = 16.299999;
-    data[19].instance_id = 0;
+    data[8].attribute_value = 0.160000;
+    data[8].instance_id = 0;
+    data[9].attribute_value = 1.580000;
+    data[9].instance_id = 3;
+    data[10].attribute_value = 2.830000;
+    data[10].instance_id = 2;
+    data[11].attribute_value = 3.760000;
+    data[11].instance_id = 1;
+    data[12].attribute_value = 0.160000;
+    data[12].instance_id = 0;
+    data[13].attribute_value = 1.580000;
+    data[13].instance_id = 1;
+    data[14].attribute_value = 2.830000;
+    data[14].instance_id = 2;
+    data[15].attribute_value = 3.760000;
+    data[15].instance_id = 3;
+
     label[0] = 0;
     label[1] = 1;
     label[2] = 2;
     label[3] = 3;
-    label[4] = 4;
+    // data[0].attribute_value = 0.160000;
+    // data[0].instance_id = 0;
+    // data[1].attribute_value = 1.580000;
+    // data[1].instance_id = 3;
+    // data[2].attribute_value = 2.830000;
+    // data[2].instance_id = 2;
+    // data[3].attribute_value = 3.760000;
+    // data[3].instance_id = 1;
+    // data[4].attribute_value = 6.760000;
+    // data[4].instance_id = 4;
+    // data[5].attribute_value = 0.080000;
+    // data[5].instance_id = 0;
+    // data[6].attribute_value = 1.700000;
+    // data[6].instance_id = 1;
+    // data[7].attribute_value = 2.000000;
+    // data[7].instance_id = 3;
+    // data[8].attribute_value = 3.830000;
+    // data[8].instance_id = 2;
+    // data[9].attribute_value = 7.200000;
+    // data[9].instance_id = 4;
+    // data[10].attribute_value = 1.920000;
+    // data[10].instance_id = 3;
+    // data[11].attribute_value = 4.230000;
+    // data[11].instance_id = 2;
+    // data[12].attribute_value = 9.760000;
+    // data[12].instance_id = 1;
+    // data[13].attribute_value = 10.300000;
+    // data[13].instance_id = 0;
+    // data[14].attribute_value = 12.300000;
+    // data[14].instance_id = 4;
+    // data[15].attribute_value = 3.400000;
+    // data[15].instance_id = 1;
+    // data[16].attribute_value = 9.900000;
+    // data[16].instance_id = 2;
+    // data[17].attribute_value = 12.300000;
+    // data[17].instance_id = 3;
+    // data[18].attribute_value = 14.300000;
+    // data[18].instance_id = 4;
+    // data[19].attribute_value = 16.299999;
+    // data[19].instance_id = 0;
+    // label[0] = 0;
+    // label[1] = 1;
+    // label[2] = 2;
+    // label[3] = 3;
+    // label[4] = 4;
 }
 
 
@@ -618,7 +618,7 @@ __global__ void set_counter(node* d_nodes, VTYPE* d_buffer, int* d_counter, int 
     d_counter[right_counter_index] = local_counter[1];
     
     // printf("3 d_nodes[0].split_index %d\n",d_nodes[0].split_index);
-    // debug
+    // // debug
     // if (blockIdx.x == 1) {
 
     //     printf("d_counter[%d] %d d_counter[%d] %d thread_idx %d node_id %d instance_id %d go_left %d\n", left_counter_index, d_counter[left_counter_index], 
@@ -719,7 +719,7 @@ __global__ void split_node(node* d_nodes, int* d_counter, int node_start_id, boo
     local_counter[0] = d_counter[left_counter_index];
     local_counter[1] = d_counter[right_counter_index];
 
-    // // debug
+    // // // debug
     // if (blockIdx.x == 1) {
     // printf("d_counter[%d] %d, d_counter[%d] %d thread_idx %d blockIdx %d prefix sum counter\n",left_counter_index,d_counter[left_counter_index],right_counter_index, d_counter[right_counter_index],thread_idx,blockIdx.x);
     // }
@@ -755,10 +755,12 @@ __global__ void split_node(node* d_nodes, int* d_counter, int node_start_id, boo
         d_new_data[new_index] = cur_data;
         // printf("");
         // // debug
-        // printf("index %d, direction %d, start_index %d, new_index %d, thread_idx %d\n", index, direction, start_index, new_index, thread_idx);
-        // if (cur_data.instance_id == 3) {
-        //     printf("d_new_data[%d].instance_id %d, d_new_data[%d].attribute_value %f index %d\n",
-        //      new_index, d_new_data[new_index].instance_id, new_index, d_new_data[new_index].attribute_value, index);
+        // if (blockIdx.x == 1) {
+        //     printf("index %d, direction %d, start_index %d, new_index %d, thread_idx %d\n", index, direction, start_index, new_index, thread_idx);
+        //     // if (cur_data.instance_id == 3) {
+        //     //     printf("d_new_data[%d].instance_id %d, d_new_data[%d].attribute_value %f index %d\n",
+        //     //      new_index, d_new_data[new_index].instance_id, new_index, d_new_data[new_index].attribute_value, index);
+        //     // }
         // }
     }
 
@@ -836,7 +838,7 @@ int main(void) {
     
     attribute_id_pair data[DataSize];
     VTYPE label [InputNum];
-    // read_input(data, label);
+    //read_input(data, label);
     fill_data(data);
     fill_label(label);
     sortArrayByAttributeValue(data);
@@ -983,9 +985,14 @@ int main(void) {
         set_counter<<<grid_size, block_size>>>(d_nodes, d_buffer, d_counter, d_key, node_start_id, d_split_direction, d_data);
         cudaDeviceSynchronize();
         cuda_check_error();
-        thrust::exclusive_scan_by_key(thrust::device, d_key, d_key + (block_size.x * 2), d_counter, d_counter); // find G
+        thrust::exclusive_scan_by_key(thrust::device, d_key, d_key + block_size.x * (num_node_cur_level) * 2, d_counter, d_counter);
         cudaDeviceSynchronize();
         cuda_check_error();
+        // // debug
+        // int key[DataSize];
+        // cudaMemcpy(nodes, d_nodes, sizeof(node)* MaxNodeNum, cudaMemcpyDeviceToHost);
+        // printf("nodes[0].feature_id %d cpu\n", nodes[0].feature_id);
+        // end debug
         // printf("creat_child_nodes\n");
         creat_child_nodes<<<grid_size, 1>>>(d_nodes, node_start_id, d_lock, d_num_node_next_level, num_node_cur_level);
         cudaDeviceSynchronize();
@@ -1017,7 +1024,7 @@ int main(void) {
         // printf("cudaDeviceSynchronize\n");
         cudaDeviceSynchronize();
         cuda_check_error();
-        // // debug
+        // debug
         // printf("after copy\n");
         // cudaMemcpy(data, d_data, sizeof(attribute_id_pair)* DataSize, cudaMemcpyDeviceToHost);
         // for (int i = 0; i < DataSize; i ++) {
