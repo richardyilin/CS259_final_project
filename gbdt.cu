@@ -39,12 +39,12 @@ using namespace std;
 
 //Define the parameters if not defined externally
 #ifndef cmd_def
-#define InputNum 5  // Number of input data points (instances)
-#define NUM_FEATURE 4  // Number of features in an instance
-# define MinimumSplitNumInstances 1
-// #define InputNum 45730  // Number of input data points (instances)
-// #define NUM_FEATURE 9  // Number of features in an instance
+// #define InputNum 5  // Number of input data points (instances)
+// #define NUM_FEATURE 4  // Number of features in an instance
 // # define MinimumSplitNumInstances 1
+#define InputNum 45730  // Number of input data points (instances)
+#define NUM_FEATURE 9  // Number of features in an instance
+# define MinimumSplitNumInstances 3
 #define MaxDepth 10  // Number of features in an instance
 # define MaxNodeNum (static_cast<int>(pow(2, MaxDepth)) - 1) // maximal number of nodes, can change to any positive integer
 #endif
@@ -569,7 +569,7 @@ __global__ void set_counter(node* d_nodes, VTYPE* d_buffer, int* d_counter, int 
     // printf("2.1 d_nodes[0].split_index %d\n",d_nodes[0].split_index);
     // int num_thread_per_block = blockDim.x;
     int num_thread_per_block = min(blockDim.x, node_size);
-    int global_counter_start_index = min(start_index, 2 * blockIdx.x * blockDim.x);
+    int global_counter_start_index = 2 * (min(start_index, blockIdx.x * blockDim.x)); // * 2 because each thread has two counters
     int left_counter_index = global_counter_start_index + thread_idx;
     int right_counter_index = left_counter_index + num_thread_per_block;
     //printf("2.2 d_nodes[0].split_index %d\n",d_nodes[0].split_index);
@@ -619,8 +619,12 @@ __global__ void set_counter(node* d_nodes, VTYPE* d_buffer, int* d_counter, int 
     
     // printf("3 d_nodes[0].split_index %d\n",d_nodes[0].split_index);
     // debug
-    // printf("d_counter[%d] %d thread_idx %d node_id %d local_counter[0] %d left\n", left_counter_index, d_counter[left_counter_index], thread_idx, node_id, local_counter[0]);
-    // printf("d_counter[%d] %d thread_idx %d node_id %d local_counter[1] %d right\n", right_counter_index, d_counter[right_counter_index], thread_idx, node_id, local_counter[1]);
+    // if (blockIdx.x == 1) {
+
+    //     printf("d_counter[%d] %d d_counter[%d] %d thread_idx %d node_id %d instance_id %d go_left %d\n", left_counter_index, d_counter[left_counter_index], 
+    //     right_counter_index, d_counter[right_counter_index], thread_idx, node_id, instance_id, go_left);
+    //     // printf(" thread_idx %d node_id %d local_counter[1] %d right\n", right_counter_index, d_counter[right_counter_index], thread_idx, node_id, local_counter[1]);
+    // }
     // if (thread_idx == 0) {
 
     //     for (int i = 2 * blockIdx.x * blockDim.x; i < min(2 * (blockIdx.x + 1) * blockDim.x, DataSize); i++) {
@@ -708,12 +712,17 @@ __global__ void split_node(node* d_nodes, int* d_counter, int node_start_id, boo
         return;
     }
     int num_thread_per_block = min(blockDim.x, node_size);
-    int global_counter_start_index = min(start_index, 2 * blockIdx.x * blockDim.x);
+    int global_counter_start_index = 2 * (min(start_index, blockIdx.x * blockDim.x)); // * 2 because each thread has two counters
     int left_counter_index = global_counter_start_index + thread_idx;
     int right_counter_index = left_counter_index + num_thread_per_block;
     int local_counter[2];
     local_counter[0] = d_counter[left_counter_index];
     local_counter[1] = d_counter[right_counter_index];
+
+    // // debug
+    // if (blockIdx.x == 1) {
+    // printf("d_counter[%d] %d, d_counter[%d] %d thread_idx %d blockIdx %d prefix sum counter\n",left_counter_index,d_counter[left_counter_index],right_counter_index, d_counter[right_counter_index],thread_idx,blockIdx.x);
+    // }
 
     // find split direction
     int num_instances_per_thread = (node_size + num_thread_per_block - 1) / num_thread_per_block;
@@ -744,7 +753,7 @@ __global__ void split_node(node* d_nodes, int* d_counter, int node_start_id, boo
         cur_data = d_data[index];
         // printf("d_new_data[%d] thread_idx %d\n", new_index,thread_idx);
         d_new_data[new_index] = cur_data;
-        printf("");
+        // printf("");
         // // debug
         // printf("index %d, direction %d, start_index %d, new_index %d, thread_idx %d\n", index, direction, start_index, new_index, thread_idx);
         // if (cur_data.instance_id == 3) {
@@ -760,9 +769,11 @@ __global__ void split_node(node* d_nodes, int* d_counter, int node_start_id, boo
 
     
     // printf("2 d_nodes[0].split_index %d\n",d_nodes[0].split_index);
+    // debug
+    
 }
 
-__global__ void set_key_buffer_for_prediction_value(node* d_nodes, VTYPE* d_buffer, int node_start_id, attribute_id_pair* d_data, int num_node_cur_level, int* d_key, VTYPE* d_label) {
+__global__ void get_prediciton_value(node* d_nodes, int node_start_id, attribute_id_pair* d_data, VTYPE* d_label) {
     int node_id = blockIdx.x + (node_start_id);
     int thread_idx = threadIdx.x;
     __shared__ node cur_node;
@@ -770,64 +781,48 @@ __global__ void set_key_buffer_for_prediction_value(node* d_nodes, VTYPE* d_buff
         cur_node = d_nodes[node_id];
     }
     __syncthreads();
-    int num_instances = cur_node.num_instances;
     int start_index = cur_node.start_index;
-    // int start_index_of_this_thread = cur_node.start_index + thread_idx;
-    // int end_index = start_index + num_instances;
-    int start_local_data_index = thread_idx;
-    int start_buffer_index = start_index / NUM_FEATURE;
-    int buffer_index;
-    int data_index;
-    int instance_id;
-    // if (thread_idx < InputNum){
-    //     printf("thread_idx %d start_local_data_index %d (start_local_data_index < num_instances) %d\n", thread_idx, start_local_data_index, (start_local_data_index < num_instances));
-    // }
-    for (int local_data_index = start_local_data_index; local_data_index < num_instances; local_data_index += blockDim.x) {
-        buffer_index = start_buffer_index + local_data_index;
-        data_index = start_index + local_data_index;
-        instance_id = d_data[data_index].instance_id;
-        d_buffer[buffer_index] = d_label[instance_id];
-        d_key[buffer_index] = node_id;
-        // printf("data_index %d, instance_id %d, buffer_index %d d_buffer[buffer_index] %f d_label[instance_id] %f num_instances %d local_data_index %d thread_idx %d\n", data_index, instance_id, buffer_index, 
-        // d_buffer[buffer_index], d_label[instance_id], num_instances, local_data_index, thread_idx);
-    }
-
-    // // debug
-    // __syncthreads();
-    // if (thread_idx == 0) {
-    //     // printf("before sum\nbuffer\n");
-    //     // for (int i = 0; i < InputNum; i++){
-    //     //     printf("d_label[%d] %f\n", i, d_label[i]);
-    //     // }
-    //     // for (int i = 0; i < InputNum; i++){
-    //     //     printf("d_label[%d] %f\n", i, d_label[i]);
-    //     // }
-    //     // for (int i = 0; i < InputNum; i++){
-    //     //     printf("d_buffer[%d] %f\n", i, d_buffer[i]);
-    //     // }
-    //     // printf("key\n");
-    //     // for (int i = 0; i < InputNum; i++){
-    //     //     printf("d_key[%d] %f\n", i, d_key[i]);
-    //     // }
-    // }
-}
-
-__global__ void set_prediction_value(node* d_nodes, VTYPE* d_buffer, int node_start_id, int num_node_cur_level) {
-    // printf("hello\n");
-    int global_thread_idx = blockIdx.x * blockDim.x + threadIdx.x;
-    // printf("global_thread_idx %d\n", global_thread_idx);
-    // if(global_thread_idx ==0) {
-    //     printf("sum %f\n" , d_buffer[0]);
-    // }
-    if (global_thread_idx >= num_node_cur_level) {
+    int start_index_of_this_thread = start_index + thread_idx;
+    int num_instances = cur_node.num_instances;
+    if (thread_idx >= num_instances) {
         return;
     }
-    int node_id = node_start_id + global_thread_idx;
-    node cur_node = d_nodes[node_id];
-    int num_instances = cur_node.num_instances;
-    VTYPE predicted_value = d_buffer[global_thread_idx] / num_instances;
-    // cur_node.predicted_value = predicted_value;
-    d_nodes[node_id].predicted_value = predicted_value;
+    int num_thread_per_block = min(blockDim.x, num_instances);
+    int end_index = start_index + num_instances;
+    VTYPE sum = 0;
+    VTYPE addend;
+    int instance_id;
+    for (int index = start_index_of_this_thread; index < end_index; index += num_thread_per_block) {
+        instance_id = d_data[index].instance_id;
+        addend = d_label[instance_id];
+        sum += addend;
+    }
+    extern __shared__ VTYPE shared_mem[];
+
+    int last_num_active_thread = num_thread_per_block;
+    int num_active_thread = (last_num_active_thread + 1) / 2;
+    int addend_thread_idx;
+    while (last_num_active_thread > 1) {
+        if (thread_idx >= num_active_thread && thread_idx < last_num_active_thread) {
+            shared_mem[thread_idx] = sum;
+        }
+        __syncthreads();
+        
+        addend_thread_idx = thread_idx + num_active_thread;
+        if (thread_idx < num_active_thread && addend_thread_idx < last_num_active_thread) {
+            addend = shared_mem[addend_thread_idx];
+            sum += addend;
+        }
+        last_num_active_thread = num_active_thread;
+        num_active_thread = (num_active_thread + 1) / 2;
+    }
+
+    if (thread_idx == 0) {
+        VTYPE predicted_value = sum / num_instances;
+        d_nodes[node_id].predicted_value = predicted_value;
+        // printf("d_nodes[%d].predicted_value %f\n",node_id,d_nodes[node_id].predicted_value);
+    }
+
 }
 int main(void) {
     node nodes[MaxNodeNum];
@@ -841,10 +836,10 @@ int main(void) {
     
     attribute_id_pair data[DataSize];
     VTYPE label [InputNum];
-    read_input(data, label);
-    // fill_data(data);
-    // fill_label(label);
-    // sortArrayByAttributeValue(data);
+    // read_input(data, label);
+    fill_data(data);
+    fill_label(label);
+    sortArrayByAttributeValue(data);
 
     // // debug
 
@@ -931,26 +926,19 @@ int main(void) {
     int dynamic_memory_size;
     while (level < MaxDepth - 1 && (num_node_cur_level > 0) && node_start_id < MaxNodeNum - 1) {
         // printf("level %d\n", level);
+        // printf("num_node_cur_level %d\n",num_node_cur_level);
         // checkCudaErrors(cudaMemset(d_num_node_next_level, 0, sizeof(int)));
         cudaMemset(d_num_node_next_level, 0, sizeof(int));
         // cudaMemcpy(d_total_num_nodes, &total_num_nodes, sizeof(int), cudaMemcpyHostToDevice);
         grid_size = dim3(num_node_cur_level);
-        block_size = dim3(NUM_THREAD);
-        // printf("set_key_buffer_for_prediction_value\n");
-        set_key_buffer_for_prediction_value<<<grid_size, block_size>>>(d_nodes, d_buffer, node_start_id, d_data, num_node_cur_level, d_key, d_label);
-        cudaDeviceSynchronize();
-        cuda_check_error();
-        // printf("thrust::reduce_by_key\n");
-        auto new_end = thrust::reduce_by_key(thrust::device, d_key, d_key + InputNum, d_buffer, d_key, d_buffer);
-        cudaDeviceSynchronize();
-        cuda_check_error();
-        // auto new_end = thrust::reduce_by_key(thrust::device, d_key, d_key + 1, d_buffer, d_key, d_buffer);
-        grid_size = dim3((num_node_cur_level + block_size.x - 1) / block_size.x);
-        // printf("set_prediction_value grid_size %d block_size %d\n", grid_size.x, block_size.x);
-        set_prediction_value<<<grid_size, block_size>>>(d_nodes, d_buffer, node_start_id, num_node_cur_level);
-        cudaDeviceSynchronize();
+        num_cache_entry_per_block = DynamicMemorySize / sizeof(VTYPE) / (num_node_cur_level);
+        block_size = dim3(min(num_cache_entry_per_block, NUM_THREAD));
+        dynamic_memory_size = block_size.x * sizeof(VTYPE);
+        get_prediciton_value<<<grid_size, block_size, dynamic_memory_size>>>(d_nodes, node_start_id, d_data, d_label);
+        // cudaDeviceSynchronize();
         cuda_check_error();
         grid_size = dim3(num_node_cur_level);
+        block_size = dim3(NUM_THREAD);
         // printf("get_gradient\n");
         get_gradient<<<grid_size, block_size>>>(d_nodes, d_data, d_label, d_buffer, node_start_id);
         cudaDeviceSynchronize();
@@ -1029,12 +1017,12 @@ int main(void) {
         // printf("cudaDeviceSynchronize\n");
         cudaDeviceSynchronize();
         cuda_check_error();
-        // debug
-        printf("after copy\n");
-        cudaMemcpy(data, d_data, sizeof(attribute_id_pair)* DataSize, cudaMemcpyDeviceToHost);
-        for (int i = 0; i < DataSize; i ++) {
-            printf("data[%d].instance_id %d, data[%d].attribute_value %f\n", i, data[i].instance_id, i, data[i].attribute_value);
-        }
+        // // debug
+        // printf("after copy\n");
+        // cudaMemcpy(data, d_data, sizeof(attribute_id_pair)* DataSize, cudaMemcpyDeviceToHost);
+        // for (int i = 0; i < DataSize; i ++) {
+        //     printf("data[%d].instance_id %d, data[%d].attribute_value %f\n", i, data[i].instance_id, i, data[i].attribute_value);
+        // }
         // printf("data[%d].instance_id %d, data[%d].attribute_value %f\n", (DataSize - 1), data[(DataSize - 1)].instance_id, (DataSize - 1), data[(DataSize - 1)].attribute_value);
         // cudaDeviceSynchronize();
         // cuda_check_error();
@@ -1052,19 +1040,11 @@ int main(void) {
         // printf("node_start_id += num_node_cur_level\n");
     }
     if (num_node_cur_level > 0) {
-        grid_size.x = num_node_cur_level;
-        block_size.x = NUM_THREAD;
-        // printf("out of loop\nnum_node_cur_level %d, node_start_id %d\n",num_node_cur_level,node_start_id);
-        // printf("set_key_buffer_for_prediction_value\n");
-        set_key_buffer_for_prediction_value<<<grid_size, block_size>>>(d_nodes, d_buffer, node_start_id, d_data, num_node_cur_level, d_key, d_label);
-        cudaDeviceSynchronize();
-        cuda_check_error();
-        auto new_end = thrust::reduce_by_key(thrust::device, d_key, d_key + InputNum, d_buffer, d_key, d_buffer);
-        cudaDeviceSynchronize();
-        cuda_check_error();
-        grid_size.x = (num_node_cur_level + block_size.x - 1) / block_size.x;
-        // printf("set_prediction_value\n");
-        set_prediction_value<<<grid_size, block_size>>>(d_nodes, d_buffer, node_start_id, num_node_cur_level);
+        grid_size = dim3(num_node_cur_level);
+        num_cache_entry_per_block = DynamicMemorySize / sizeof(VTYPE) / (num_node_cur_level);
+        block_size = dim3(min(num_cache_entry_per_block, NUM_THREAD));
+        dynamic_memory_size = block_size.x * sizeof(VTYPE);
+        get_prediciton_value<<<grid_size, block_size, dynamic_memory_size>>>(d_nodes, node_start_id, d_data, d_label);
         cudaDeviceSynchronize();
         cuda_check_error();
         node_start_id += num_node_cur_level;
