@@ -42,9 +42,12 @@ using namespace std;
 // #define InputNum 4  // Number of input data points (instances)
 // #define NUM_FEATURE 4  // Number of features in an instance
 // # define MinimumSplitNumInstances 1
+// #define InputNum 45730  // Number of input data points (instances)
+// #define NUM_FEATURE 9  // Number of features in an instance
+// # define MinimumSplitNumInstances 1
 #define InputNum 45730  // Number of input data points (instances)
 #define NUM_FEATURE 9  // Number of features in an instance
-# define MinimumSplitNumInstances 1
+# define MinimumSplitNumInstances 3
 #define MaxDepth 10  // Number of features in an instance
 # define MaxNodeNum (static_cast<int>(pow(2, MaxDepth)) - 1) // maximal number of nodes, can change to any positive integer
 #endif
@@ -412,7 +415,7 @@ __global__ void get_gain(node* d_nodes, VTYPE* d_buffer, int node_start_id) { //
 
     // skip the last instance
     for (int index = start_index_of_this_thread; index < end_index; index += blockDim.x) {
-        index_in_segment = index % num_instances;
+        index_in_segment = (index - start_index) % num_instances;
         if (index_in_segment == NUM_FEATURE - 1) { // the last instance in the feature, cannot split because the right child has no instances
             //d_buffer[index] = 0;
             continue;
